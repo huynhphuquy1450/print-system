@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const jobService = require('../services/job-service');
 const { verifyClient, verifyAgent } = require('../middleware/auth');
+const { clientRateLimit } = require('../middleware/rate-limit-client');
 const { validate } = require('../middleware/validate');
 
 /**
@@ -13,6 +14,7 @@ const { validate } = require('../middleware/validate');
 router.post(
   '/',
   verifyClient,
+  clientRateLimit(),
   validate({
     branch_id: { required: true, type: 'string' },
     pdf_base64: { required: true, type: 'string' },

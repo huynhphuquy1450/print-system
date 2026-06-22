@@ -62,7 +62,10 @@ const config = {
   },
 
   rateLimit: {
+    // Per-IP login rate limit: chống brute force password
     authLoginPerMin: parseInt(optional('AUTH_LOGIN_RATE_PER_MIN', '5'), 10),
+    // Per-client write rate limit: chống HQ spam POST jobs/branches/printers/agents
+    clientWritePerMin: parseInt(optional('CLIENT_WRITE_RATE_PER_MIN', '30'), 10),
   },
 
   // Topic prefix helper
