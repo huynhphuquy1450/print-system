@@ -177,7 +177,7 @@ Tổng repo:   73 file (không tính node_modules, DB)
 
 | Method | Path | Auth | Body | Response |
 |---|---|---|---|---|
-| POST | `/api/print-jobs` | Bearer | `{branch_id, printer?, pdf_base64, metadata?}` | 201 `{job_id, status:"queued"}` |
+| POST | `/api/print-jobs` | Bearer | `{branch_id, printer?, pdf_base64, metadata?:{user_id, user_name?, note?}}` | 201 `{job_id, status:"queued"}` |
 | GET | `/api/print-jobs/:id` | Bearer | - | Full job row + parsed metadata |
 | GET | `/api/print-jobs` | Bearer | - | 200 jobs gần nhất (LIMIT 200) |
 
@@ -211,6 +211,30 @@ Tổng repo:   73 file (không tính node_modules, DB)
 | Method | Path | Auth | Body | Response |
 |---|---|---|---|---|
 | POST | `/api/admin/agents` | Bearer | `{count, prefix?, name_template?}` | 201 `{created, branches:[{id, name, agent_token}]}` |
+
+### 4.8. Audit trail (khuyến nghị cho HQ)
+
+Để truy vết "ai in cái gì", mỗi `POST /api/print-jobs` nên truyền `metadata.user_id` (khuyến nghị) và `metadata.user_name` (tùy chọn, để hiển thị). Server lưu metadata vào DB dạng JSON, tra cứu qua `GET /api/print-jobs/:id` (response trả về `metadata` đã parse).
+
+Ví dụ body:
+
+```json
+{
+  "branch_id": "br_001",
+  "pdf_base64": "JVBERi0xLjQK...",
+  "metadata": {
+    "user_id": "EMP-1234",
+    "user_name": "Nguyễn Văn A",
+    "note": "In hợp đồng HD-2026-0042"
+  }
+}
+```
+
+**Lưu ý:**
+
+- Metadata là JSON tự do — server không validate nội dung, chỉ lưu trữ.
+- Nếu thiếu `user_id` thì job vẫn chạy (status 201), nhưng sẽ không truy vết được sau này.
+- Server cũng tự ghi `client_id` (ID của HQ client từ JWT) vào `jobs.client_id` — kết hợp với `metadata.user_id` để truy vết cả 2 chiều (HQ nào → user nào in).
 
 ---
 
@@ -555,7 +579,7 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 | 3 | Cert self-signed → client phải `--cafile` hoặc `rejectUnauthorized:false` | Dev friction | Sẽ mua domain + Let's Encrypt (GĐ2) |
 | 4 | Không có HTTPS cho API (chỉ HTTP) | Insecure trên internet | OK vì VPN hoặc local; cần nginx reverse proxy + certbot khi public |
 | 5 | Không có rate-limit per-client (chỉ per-IP login) | HQ spam được | Theo dõi, chưa thấy vấn đề |
-| 6 | Không có audit log ai in cái gì | Khó truy vết | Có `metadata` field — HQ nên ghi `user_id` vào đó |
+| 6 | Không có audit log ai in cái gì | Đã có guidance cho HQ (xem §4.8) | HQ cần truyền `metadata.user_id` khi POST job |
 | 7 | Cron `cleanup-files` xóa PDF > 7 ngày — không audit | Mất data nếu cần reprint | Backup DB giữ 30 ngày, lưu PDF ra S3 nếu cần |
 
 ### 10.2. Cần monitor thường trực
