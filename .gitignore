@@ -22,6 +22,8 @@ logs/
 *.pdf
 dist/
 build/
+coverage/
+*/coverage/
 
 # OS
 .DS_Store

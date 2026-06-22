@@ -95,3 +95,20 @@ jobs:
           if [ "$fail" = "1" ]; then
             echo "::warning::Some links broken (see above). Fix or update ROADMAP.md."
           fi
+
+  server-test:
+    name: Server unit tests (jest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install dependencies (with dev deps for jest)
+        run: npm ci
+      - name: Run jest
+        # Tests use jest.setup.js to inject dummy env vars (no real secrets needed)
+        run: npm test
