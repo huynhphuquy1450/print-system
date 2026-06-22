@@ -599,7 +599,7 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 | 4 | Không có HTTPS cho API (chỉ HTTP) | Insecure trên internet | OK vì VPN hoặc local; cần nginx reverse proxy + certbot khi public |
 | 5 | ~~Không có rate-limit per-client (chỉ per-IP login)~~ | ~~HQ spam được~~ | ✅ **Đã fix**: middleware `clientRateLimit` (`server/src/middleware/rate-limit-client.js`), key theo `req.client.id`, default `CLIENT_WRITE_RATE_PER_MIN=30` (env). Áp dụng cho `POST /api/print-jobs`. Nếu scale horizontal → đổi sang Redis store. |
 | 6 | Không có audit log ai in cái gì | Đã có guidance cho HQ (xem §4.8) | HQ cần truyền `metadata.user_id` khi POST job |
-| 7 | Cron `cleanup-files` xóa PDF > 7 ngày — không audit | Mất data nếu cần reprint | Backup DB giữ 30 ngày, lưu PDF ra S3 nếu cần |
+| 7 | ~~Cron `cleanup-files` xóa PDF > 7 ngày — không audit~~ | ~~Mất data nếu cần reprint~~ | ✅ **Đã fix**: bảng `cleanup_audit` (`server/src/db.js`) ghi mỗi lần xóa (job_id, file_path, branch_id, reason, deleted_at, size_bytes) — `server/src/services/cleanup-audit.js` được gọi trong `db.transaction()` với `deleteJobById`, đảm bảo atomic (audit fail → delete roll back). Truy vết qua `SELECT * FROM cleanup_audit WHERE deleted_at > ?`. Schema + retention policy xem §10.3. |
 
 ### 10.2. Cần monitor thường trực
 
@@ -608,6 +608,54 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 - **MQTT connection** — health endpoint, log "MQTT disconnected"
 - **Job stuck** ở status `sent` > 5 phút — retry-stale cron sẽ lo, nhưng nếu retry_count >= 5 → mark failed
 - **PM2 status** — uptime, memory, restart count
+
+### 10.3. Bảng `cleanup_audit` (mới, §10.1 #7 fix)
+
+Bảng `cleanup_audit` được tạo tự động bởi `db.exec(...)` ở lần khởi động server đầu tiên (idempotent — `CREATE TABLE IF NOT EXISTS`). Mỗi lần cron `cleanup-files` xóa một PDF/job, một row audit được ghi **trước** khi job row bị xóa — cả hai nằm trong cùng `db.transaction()`, nên nếu audit fail thì delete roll back (job vẫn còn, retry lần sau).
+
+#### Schema
+
+| Column | Type | Nullable | Default | Mô tả |
+|---|---|---|---|---|
+| `id` | INTEGER | NO | autoincrement | PK, sequential |
+| `job_id` | TEXT | NO | - | ID job bị xóa (job row không còn — không FK) |
+| `file_path` | TEXT | YES | NULL | Absolute path lúc xóa (NULL nếu file đã missing) |
+| `branch_id` | TEXT | YES | NULL | Branch sở hữu job (NULL nếu job không gắn branch) |
+| `reason` | TEXT | NO | `'retention'` | `'retention'` (bình thường) \| `'file-missing'` (file đã gone trước đó) |
+| `deleted_at` | INTEGER | NO | - | ms epoch (timestamp lúc xóa) |
+| `size_bytes` | INTEGER | YES | NULL | Kích thước file (bytes) trước khi unlink — NULL nếu file missing |
+
+Index: `idx_cleanup_audit_deleted_at` (DESC), `idx_cleanup_audit_branch`.
+
+#### Retention policy
+
+**Không auto-purge** trong code. Audit sống độc lập với `jobs` (FK không tồn tại cố ý — nếu có FK thì audit sẽ bị cascade-delete theo job, vô hiệu hóa mục đích). Nếu DB phình:
+
+- Khuyến nghị: `VACUUM` thủ công mỗi 6 tháng, hoặc
+- Script `DELETE FROM cleanup_audit WHERE deleted_at < ?` theo policy riêng (chưa có trong cron — TODO §11).
+
+#### Query mẫu
+
+```sql
+-- Audit trong 30 ngày qua (recent reprints? investigate "lost" PDFs)
+SELECT * FROM cleanup_audit
+ WHERE deleted_at > strftime('%s','now','-30 days') * 1000
+ ORDER BY deleted_at DESC;
+
+-- Storage freed theo branch (MB) — capacity planning
+SELECT branch_id,
+ SUM(size_bytes) / 1024.0 / 1024.0 AS mb_freed
+ FROM cleanup_audit
+ WHERE deleted_at > ?
+ GROUP BY branch_id
+ ORDER BY mb_freed DESC;
+
+-- Top 10 deletions gần nhất
+SELECT job_id, file_path, reason, deleted_at, size_bytes
+ FROM cleanup_audit
+ ORDER BY deleted_at DESC
+ LIMIT 10;
+```
 
 ---
 
@@ -642,6 +690,7 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 
 ### Giai đoạn 3 — Scale out (6-12 tháng, optional)
 
+- Retention policy cho bảng `cleanup_audit` (§10.3) — script tự động VACUUM hoặc `DELETE` cũ
 - PostgreSQL thay SQLite (nếu > 100 jobs/phút)
 - Redis cache cho job metadata
 - Multi-region VPS (failover)
