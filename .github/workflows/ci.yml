@@ -54,3 +54,44 @@ jobs:
             exit 1
           fi
           echo "=== No secrets found ==="
+
+  governance-check:
+    name: Governance files present
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify required governance files
+        run: |
+          for f in ROADMAP.md CONTRIBUTING.md CODE_OF_CONDUCT.md \
+                   .github/ISSUE_TEMPLATE/bug_report.md \
+                   .github/ISSUE_TEMPLATE/feature_request.md \
+                   .github/PULL_REQUEST_TEMPLATE.md; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing required file: $f"
+              exit 1
+            fi
+          done
+          echo "All governance files present"
+
+  markdown-link-check:
+    name: Markdown link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check internal markdown links
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            dir=$(dirname "$f")
+            grep -oE '\]\(\.\.?/[^)]+\.md[^)]*\)' "$f" 2>/dev/null | sed 's/^(//;s/)$//' | while read link; do
+              link="${link%#*}"
+              target="$dir/$link"
+              if [ ! -f "$target" ]; then
+                echo "::warning::Broken link in $f: $link (target: $target)"
+                fail=1
+              fi
+            done
+          done < <(find . -name '*.md' -not -path '*/node_modules/*' -not -path './node_modules/*')
+          if [ "$fail" = "1" ]; then
+            echo "::warning::Some links broken (see above). Fix or update ROADMAP.md."
+          fi
