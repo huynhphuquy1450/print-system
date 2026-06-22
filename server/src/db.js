@@ -67,6 +67,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_jobs_status_sent_at ON jobs(status, sent_at);
   CREATE INDEX IF NOT EXISTS idx_printers_branch ON printers(branch_id);
+
+  -- Audit log: mỗi lần cleanup-files xóa PDF/job đều ghi 1 row ở đây.
+ -- Không có FK tới jobs vì job row bị xóa — audit phải sống sót.
+ CREATE TABLE IF NOT EXISTS cleanup_audit (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ job_id TEXT NOT NULL,
+ file_path TEXT,
+ branch_id TEXT,
+ reason TEXT NOT NULL DEFAULT 'retention',
+ deleted_at INTEGER NOT NULL,
+ size_bytes INTEGER
+ );
+
+ CREATE INDEX IF NOT EXISTS idx_cleanup_audit_deleted_at ON cleanup_audit(deleted_at DESC);
+ CREATE INDEX IF NOT EXISTS idx_cleanup_audit_branch ON cleanup_audit(branch_id);
 `);
 
 logger.info('Database initialized', { path: dbPath });
@@ -126,6 +141,17 @@ const stmts = {
     ORDER BY sent_at ASC LIMIT 50
   `),
   deleteOldJobs: db.prepare(`DELETE FROM jobs WHERE status IN ('printed', 'failed') AND created_at < @cutoff`),
+
+ // Cleanup audit
+ findOldJobs: db.prepare(`
+ SELECT id, file_path, branch_id FROM jobs
+ WHERE status IN ('printed', 'failed') AND created_at < ?
+ `),
+ deleteJobById: db.prepare(`DELETE FROM jobs WHERE id = ?`),
+ recordCleanup: db.prepare(`
+ INSERT INTO cleanup_audit (job_id, file_path, branch_id, reason, deleted_at, size_bytes)
+ VALUES (@job_id, @file_path, @branch_id, @reason, @deleted_at, @size_bytes)
+ `),
 };
 
 module.exports = { db, stmts };
