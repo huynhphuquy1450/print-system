@@ -177,7 +177,7 @@ Tổng repo:   73 file (không tính node_modules, DB)
 
 | Method | Path | Auth | Body | Response |
 |---|---|---|---|---|
-| POST | `/api/print-jobs` | Bearer | `{branch_id, printer?, pdf_base64, metadata?:{user_id, user_name?, note?}}` | 201 `{job_id, status:"queued"}` |
+| POST | `/api/print-jobs` | Bearer | `{branch_id, printer?, pdf_base64, metadata?:{user_id, user_name?, note?}}` | 201 `{job_id, status:"queued"}`<br>**429** nếu client vượt rate limit (xem §4.9) |
 | GET | `/api/print-jobs/:id` | Bearer | - | Full job row + parsed metadata |
 | GET | `/api/print-jobs` | Bearer | - | 200 jobs gần nhất (LIMIT 200) |
 
@@ -235,6 +235,25 @@ Ví dụ body:
 - Metadata là JSON tự do — server không validate nội dung, chỉ lưu trữ.
 - Nếu thiếu `user_id` thì job vẫn chạy (status 201), nhưng sẽ không truy vết được sau này.
 - Server cũng tự ghi `client_id` (ID của HQ client từ JWT) vào `jobs.client_id` — kết hợp với `metadata.user_id` để truy vết cả 2 chiều (HQ nào → user nào in).
+
+### 4.9. Rate Limiting (429)
+
+Có 2 lớp rate-limit (cả hai dùng `express-rate-limit`, store in-memory):
+
+| Loại | Key | Default | Env | Áp dụng cho |
+|---|---|---|---|---|
+| Per-IP login | `req.ip` | 5 / phút | `AUTH_LOGIN_RATE_PER_MIN` | `POST /api/auth/login` — chống brute force password |
+| Per-client write | `req.client.id` | 30 / phút | `CLIENT_WRITE_RATE_PER_MIN` | `POST /api/print-jobs` — chống HQ spam |
+
+Response khi vượt limit:
+```json
+HTTP 429
+{ "error": "Too many requests, slow down" }
+```
+
+Headers: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` (`standardHeaders: 'draft-7'`).
+
+**Lưu ý scale:** MemoryStore là in-process — nếu chạy nhiều node (horizontal scale) thì counters không chia sẻ giữa các node, một client có thể gửi N requests × số node. Khi đó cần đổi sang Redis store.
 
 ---
 
@@ -578,7 +597,7 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 | 2 | SQLite single-file → không scale > 100 jobs/phút | DB lock khi concurrent | OK cho MVP, cần PostgreSQL khi scale |
 | 3 | Cert self-signed → client phải `--cafile` hoặc `rejectUnauthorized:false` | Dev friction | Sẽ mua domain + Let's Encrypt (GĐ2) |
 | 4 | Không có HTTPS cho API (chỉ HTTP) | Insecure trên internet | OK vì VPN hoặc local; cần nginx reverse proxy + certbot khi public |
-| 5 | Không có rate-limit per-client (chỉ per-IP login) | HQ spam được | Theo dõi, chưa thấy vấn đề |
+| 5 | ~~Không có rate-limit per-client (chỉ per-IP login)~~ | ~~HQ spam được~~ | ✅ **Đã fix**: middleware `clientRateLimit` (`server/src/middleware/rate-limit-client.js`), key theo `req.client.id`, default `CLIENT_WRITE_RATE_PER_MIN=30` (env). Áp dụng cho `POST /api/print-jobs`. Nếu scale horizontal → đổi sang Redis store. |
 | 6 | Không có audit log ai in cái gì | Đã có guidance cho HQ (xem §4.8) | HQ cần truyền `metadata.user_id` khi POST job |
 | 7 | Cron `cleanup-files` xóa PDF > 7 ngày — không audit | Mất data nếu cần reprint | Backup DB giữ 30 ngày, lưu PDF ra S3 nếu cần |
 
