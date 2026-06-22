@@ -1,0 +1,56 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  server-syntax:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: npm ci --omit=dev
+      - name: Syntax check all .js files
+        run: |
+          echo "=== Checking src/**/*.js ==="
+          find src -name "*.js" -print -exec node --check {} \;
+          echo "=== Checking scripts/**/*.js ==="
+          find scripts -name "*.js" -print -exec node --check {} \;
+      - name: Verify package.json valid
+        run: node -e "console.log(require('./package.json').name)"
+
+  agent-syntax:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: npm ci --omit=dev
+      - name: Syntax check agent.js
+        run: node --check agent.js
+      - name: Verify package.json valid
+        run: node -e "console.log(require('./package.json').name)"
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for known secret patterns
+        run: |
+          echo "=== Scanning for hardcoded secrets ==="
+          if grep -rE "IwALxuEKX|05e91dd52e|089add841|77842914e7b390a|81aef7023a310693|a7644c8cf5f9bbee|MIIDDjCC|BEGIN CERTIFICATE" \
+             --include="*.md" --include="*.js" --include="*.ps1" --include="*.sh" . ; then
+            echo "ERROR: Found potential secrets in committed files"
+            exit 1
+          fi
+          echo "=== No secrets found ==="
