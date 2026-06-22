@@ -20,7 +20,7 @@ Hệ thống in PDF hợp đồng từ xa cho công ty có HQ + nhiều chi nhá
 ### Server (Ubuntu/Linux)
 ```bash
 cd server
-npm install --production
+npm install --omit=dev
 cp .env.example .env  # rồi điền secret
 node src/index.js
 ```
@@ -29,7 +29,7 @@ node src/index.js
 ```powershell
 cd agent
 # Cài SumatraPDF vào C:\print-system\tools\SumatraPDF.exe (xem tools/README.md)
-npm install --production
+npm install --omit=dev
 # Điền .env với AGENT_TOKEN, MQTT_USER, MQTT_PASS
 .\install-service.ps1
 ```
