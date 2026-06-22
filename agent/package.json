@@ -4,11 +4,21 @@
   "description": "Print agent - subscribes MQTT, prints via SumatraPDF, callbacks status to Print Service",
   "main": "agent.js",
   "scripts": {
-    "start": "node agent.js"
+    "start": "node agent.js",
+    "lint": "eslint . --ext .js",
+    "lint:fix": "eslint . --ext .js --fix"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "axios": "^1.7.0",
     "dotenv": "^16.4.5",
     "mqtt": "^5.10.1"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.2"
   }
 }

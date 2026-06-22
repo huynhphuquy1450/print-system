@@ -3,7 +3,6 @@
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
-const config = require('./config');
 const logger = require('./logger');
 const { errorHandler } = require('./middleware/error');
 

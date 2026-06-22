@@ -1,7 +1,6 @@
 'use strict';
 
 const express = require('express');
-const crypto = require('crypto');
 const router = express.Router();
 const { stmts } = require('../db');
 const { verifyClient } = require('../middleware/auth');

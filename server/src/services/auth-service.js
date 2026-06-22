@@ -5,7 +5,6 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const config = require('../config');
 const { stmts } = require('../db');
-const logger = require('../logger');
 
 /**
  * Verify client credentials: id + secret

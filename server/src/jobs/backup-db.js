@@ -18,7 +18,6 @@ function run() {
     if (lastRunDate === todayKey) return;
     lastRunDate = todayKey;
 
-    const dbPath = path.resolve(__dirname, '..', '..', config.db.path);
     const backupsDir = path.resolve(__dirname, '..', '..', config.db.backupsDir);
     fs.mkdirSync(backupsDir, { recursive: true });
 

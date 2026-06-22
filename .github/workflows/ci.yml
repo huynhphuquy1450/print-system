@@ -41,6 +41,24 @@ jobs:
       - name: Verify package.json valid
         run: node -e "console.log(require('./package.json').name)"
 
+  lint:
+    name: Lint (ESLint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+            agent/package-lock.json
+      - name: Install root dev deps
+        run: npm ci
+      - name: Lint monorepo
+        run: npm run lint
+
   secret-scan:
     runs-on: ubuntu-latest
     steps:

@@ -19,7 +19,6 @@ const {
 
 const TEST_CLIENT_ID = 'test_client_001';
 const TEST_CLIENT_NAME = 'Acme Corp';
-const TEST_CLIENT_SECRET = 'super-secret-password';
 const BCRYPT_HASH = '$2a$10$abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVW';
 
 describe('auth-service', () => {
