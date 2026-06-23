@@ -5,36 +5,57 @@ const router = express.Router();
 const jobService = require('../services/job-service');
 const { verifyClient, verifyAgent } = require('../middleware/auth');
 const { clientRateLimit } = require('../middleware/rate-limit-client');
-const { validate } = require('../middleware/validate');
+const { pdfUpload } = require('../middleware/upload');
 
 /**
  * POST /api/print-jobs (Client JWT)
- * Body: { branch_id, printer?, pdf_base64, metadata? }
+ * multipart/form-data:
+ * - pdf: file (application/pdf, ≤ 50 MB)
+ * - branch_id: string (required)
+ * - printer?: string
+ * - metadata?: JSON string
  */
 router.post(
-  '/',
-  verifyClient,
-  clientRateLimit(),
-  validate({
-    branch_id: { required: true, type: 'string' },
-    pdf_base64: { required: true, type: 'string' },
-    printer: { type: 'string' },
-    metadata: { type: 'object' },
-  }),
-  async (req, res, next) => {
-    try {
-      const result = await jobService.createJob({
-        branchId: req.body.branch_id,
-        printer: req.body.printer,
-        pdfBase64: req.body.pdf_base64,
-        metadata: req.body.metadata,
-        clientId: req.client.id,
-      });
-      res.status(201).json(result);
-    } catch (e) {
-      next(e);
-    }
-  }
+ '/',
+ verifyClient,
+ clientRateLimit(),
+ pdfUpload,
+ (req, res, next) => {
+ // Inline field validation (multer parsed text fields into req.body)
+ const errors = [];
+ if (!req.body.branch_id || typeof req.body.branch_id !== 'string') {
+ errors.push("Field 'branch_id' is required");
+ }
+ if (req.body.printer !== undefined && typeof req.body.printer !== 'string') {
+ errors.push("Field 'printer' must be a string");
+ }
+ if (req.body.metadata !== undefined) {
+ if (typeof req.body.metadata !== 'string') {
+ errors.push("Field 'metadata' must be a JSON string");
+ } else {
+ try { JSON.parse(req.body.metadata); }
+ catch { errors.push("Field 'metadata' must be valid JSON"); }
+ }
+ }
+ if (!req.file) errors.push("File field 'pdf' is required");
+ if (errors.length) return res.status(400).json({ error: 'Validation failed', details: errors });
+
+ let metadata = {};
+ if (req.body.metadata) {
+ try { metadata = JSON.parse(req.body.metadata); } catch (e) { metadata = {}; }
+ }
+
+ jobService
+ .createJob({
+ branchId: req.body.branch_id,
+ printer: req.body.printer || null,
+ pdfBuffer: req.file.buffer,
+ metadata,
+ clientId: req.client.id,
+ })
+ .then((result) => res.status(201).json(result))
+ .catch(next);
+ }
 );
 
 /**
@@ -43,31 +64,31 @@ router.post(
  * PHẢI đặt TRƯỚC /:id để tránh nuốt route
  */
 router.get('/', verifyAgent, (req, res, next) => {
-  try {
-    const branchId = req.query.branch_id;
-    if (!branchId) {
-      return res.status(400).json({ error: 'branch_id query param is required' });
-    }
-    if (req.agent.branchId !== branchId) {
-      return res.status(403).json({ error: 'Branch mismatch' });
-    }
-    const jobs = jobService.listPendingForBranch(branchId);
-    res.json({ jobs });
-  } catch (e) {
-    next(e);
-  }
+ try {
+ const branchId = req.query.branch_id;
+ if (!branchId) {
+ return res.status(400).json({ error: 'branch_id query param is required' });
+ }
+ if (req.agent.branchId !== branchId) {
+ return res.status(403).json({ error: 'Branch mismatch' });
+ }
+ const jobs = jobService.listPendingForBranch(branchId);
+ res.json({ jobs });
+ } catch (e) {
+ next(e);
+ }
 });
 
 /**
  * GET /api/print-jobs/:id (Client JWT) - xem status
  */
 router.get('/:id', verifyClient, (req, res, next) => {
-  try {
-    const job = jobService.getJob(req.params.id);
-    res.json(job);
-  } catch (e) {
-    next(e);
-  }
+ try {
+ const job = jobService.getJob(req.params.id);
+ res.json(job);
+ } catch (e) {
+ next(e);
+ }
 });
 
 /**
@@ -75,18 +96,18 @@ router.get('/:id', verifyClient, (req, res, next) => {
  * Body: { status: 'printed'|'failed', error? }
  */
 router.post('/:id/status', verifyAgent, (req, res, next) => {
-  try {
-    const { status, error } = req.body || {};
-    const result = jobService.updateJobStatus(
-      req.params.id,
-      req.agent.branchId,
-      status,
-      error
-    );
-    res.json(result);
-  } catch (e) {
-    next(e);
-  }
+ try {
+ const { status, error } = req.body || {};
+ const result = jobService.updateJobStatus(
+ req.params.id,
+ req.agent.branchId,
+ status,
+ error
+ );
+ res.json(result);
+ } catch (e) {
+ next(e);
+ }
 });
 
 /**
@@ -96,24 +117,24 @@ router.post('/:id/status', verifyAgent, (req, res, next) => {
  * Response: application/pdf binary, header Content-Disposition: attachment
  */
 router.get('/:id/file', verifyAgent, (req, res, next) => {
-  try {
-    const { absolutePath, fileSize } = jobService.getJobFileForAgent(
-      req.params.id,
-      req.agent.branchId
-    );
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Length': fileSize,
-      'Content-Disposition': `attachment; filename="${req.params.id}.pdf"`,
-    });
-    // Stream file (không load hết vào RAM)
-    const fs = require('fs');
-    fs.createReadStream(absolutePath)
-      .on('error', (e) => next(Object.assign(new Error('Stream error: ' + e.message), { status: 500 })))
-      .pipe(res);
-  } catch (e) {
-    next(e);
-  }
+ try {
+ const { absolutePath, fileSize } = jobService.getJobFileForAgent(
+ req.params.id,
+ req.agent.branchId
+ );
+ res.set({
+ 'Content-Type': 'application/pdf',
+ 'Content-Length': fileSize,
+ 'Content-Disposition': `attachment; filename="${req.params.id}.pdf"`,
+ });
+ // Stream file (không load hết vào RAM)
+ const fs = require('fs');
+  fs.createReadStream(absolutePath)
+ .on('error', (e) => next(Object.assign(new Error('Stream error: ' + e.message), { status: 500 })))
+ .pipe(res);
+ } catch (e) {
+ next(e);
+ }
 });
 
 module.exports = router;

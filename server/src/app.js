@@ -21,9 +21,9 @@ app.use(helmet());
 // CORS - GĐ1 allow all, GĐ2 restrict
 app.use(cors());
 
-// JSON body parser (với giới hạn 50MB cho PDF base64)
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// JSON body parser — 1KB đủ cho mọi endpoint (POST /api/print-jobs giờ dùng multipart)
+app.use(express.json({ limit: '1kb' }));
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
 // Request log
 app.use((req, res, next) => {
