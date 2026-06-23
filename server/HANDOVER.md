@@ -177,7 +177,7 @@ Tổng repo:   73 file (không tính node_modules, DB)
 
 | Method | Path | Auth | Body | Response |
 |---|---|---|---|---|
-| POST | `/api/print-jobs` | Bearer | `{branch_id, printer?, pdf_base64, metadata?:{user_id, user_name?, note?}}` | 201 `{job_id, status:"queued"}`<br>**429** nếu client vượt rate limit (xem §4.9) |
+| POST | `/api/print-jobs` | Bearer | `multipart/form-data`: file `pdf` (application/pdf, ≤ 50 MB) + text `branch_id` + optional `printer` + optional `metadata` (JSON string) | 201 `{job_id, status:"queued"}`<br>**429** nếu client vượt rate limit (xem §4.9) |
 | GET | `/api/print-jobs/:id` | Bearer | - | Full job row + parsed metadata |
 | GET | `/api/print-jobs` | Bearer | - | 200 jobs gần nhất (LIMIT 200) |
 
@@ -216,25 +216,24 @@ Tổng repo:   73 file (không tính node_modules, DB)
 
 Để truy vết "ai in cái gì", mỗi `POST /api/print-jobs` nên truyền `metadata.user_id` (khuyến nghị) và `metadata.user_name` (tùy chọn, để hiển thị). Server lưu metadata vào DB dạng JSON, tra cứu qua `GET /api/print-jobs/:id` (response trả về `metadata` đã parse).
 
-Ví dụ body:
+Ví dụ body (multipart):
 
-```json
-{
-  "branch_id": "br_001",
-  "pdf_base64": "JVBERi0xLjQK...",
-  "metadata": {
-    "user_id": "EMP-1234",
-    "user_name": "Nguyễn Văn A",
-    "note": "In hợp đồng HD-2026-0042"
-  }
-}
+```bash
+curl -X POST https://print.example.com/api/print-jobs \
+ -H "Authorization: Bearer <jwt>" \
+ -F branch_id=br_001 \
+ -F printer="HP LaserJet Pro" \
+ -F 'metadata={"user_id":"EMP-1234","user_name":"Nguyễn Văn A","note":"In hợp đồng HD-2026-0042"}' \
+ -F pdf=@contract.pdf
 ```
 
 **Lưu ý:**
 
-- Metadata là JSON tự do — server không validate nội dung, chỉ lưu trữ.
-- Nếu thiếu `user_id` thì job vẫn chạy (status 201), nhưng sẽ không truy vết được sau này.
+- `pdf` phải là file PDF binary (MIME `application/pdf`), tối đa 50 MB.
+- `metadata` là JSON string (KHÔNG phải object). Server parse tự do, không validate schema nội dung.
+- Nếu thiếu `user_id` trong metadata thì job vẫn chạy (status 201), nhưng sẽ không truy vết được sau này.
 - Server cũng tự ghi `client_id` (ID của HQ client từ JWT) vào `jobs.client_id` — kết hợp với `metadata.user_id` để truy vết cả 2 chiều (HQ nào → user nào in).
+- **BREAKING CHANGE từ GĐ1**: API cũ nhận JSON `{pdf_base64: "..."}` đã bị thay thế hoàn toàn. Client phải gửi `multipart/form-data`.
 
 ### 4.9. Rate Limiting (429)
 
@@ -593,7 +592,7 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 
 | # | Vấn đề | Impact | Workaround |
 |---|---|---|---|
-| 1 | PDF base64 trong JSON → request lớn, tốn RAM | Memory peak ~50MB/job | Giới hạn 50MB qua express.json limit |
+| 1 | ~~PDF base64 trong JSON → request lớn, tốn RAM~~ | ~~Memory peak ~50MB/job~~ | ✅ **Đã fix**: `POST /api/print-jobs` giờ nhận `multipart/form-data` với file `pdf` binary (multer memoryStorage, 50 MB cap, application/pdf filter). `express.json` giảm xuống 1 KB (chỉ đủ cho các endpoint metadata). Agent nhận metadata-only MQTT payload (`{job_id, printer, metadata, version: 2}`) và luôn tải PDF qua `GET /api/print-jobs/:id/file` — 1 code path duy nhất cho cả real-time lẫn reconnect. **BREAKING CHANGE** cho HQ client — xem §4.3 và commit body. |
 | 2 | SQLite single-file → không scale > 100 jobs/phút | DB lock khi concurrent | OK cho MVP, cần PostgreSQL khi scale |
 | 3 | Cert self-signed → client phải `--cafile` hoặc `rejectUnauthorized:false` | Dev friction | Sẽ mua domain + Let's Encrypt (GĐ2) |
 | 4 | Không có HTTPS cho API (chỉ HTTP) | Insecure trên internet | OK vì VPN hoặc local; cần nginx reverse proxy + certbot khi public |
