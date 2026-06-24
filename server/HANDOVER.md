@@ -243,12 +243,34 @@ Có 2 lớp rate-limit (cả hai dùng `express-rate-limit`, store in-memory):
 |---|---|---|---|---|
 | Per-IP login | `req.ip` | 5 / phút | `AUTH_LOGIN_RATE_PER_MIN` | `POST /api/auth/login` — chống brute force password |
 | Per-client write | `req.client.id` | 30 / phút | `CLIENT_WRITE_RATE_PER_MIN` | `POST /api/print-jobs` — chống HQ spam |
+| Per-IP setup register | `req.ip` | 5 / giờ | `SETUP_REGISTER_RATE_PER_HOUR` | `POST /api/setup/register-branch` — chống brute force client_secret + branch-name squatting |
 
 Response khi vượt limit:
 ```json
 HTTP 429
 { "error": "Too many requests, slow down" }
 ```
+
+### 4.10. Setup — Self-service branch onboarding (Task 7)
+
+Endpoint public dùng để chi nhánh IT tự đăng ký branch (thay vì HQ phải generate `agent_token` thủ công).
+
+| Method | Path | Auth | Body | Response |
+|---|---|---|---|---|
+| POST | `/api/setup/register-branch` | **client_id + client_secret** | `{client_id, client_secret, branch_name, location?}` | 201 `{branch_id, agent_token, topic_prefix}`<br>400 invalid input<br>401 bad credentials<br>409 branch name đã tồn tại cho client<br>429 vượt rate limit (5/giờ/IP) |
+
+**Flow HQ → chi nhánh:**
+
+1. HQ chạy 1 lần: `OUTPUT_FILE=install.json node scripts/gen-client.js "Acme Corp"` → JSON file với `server_url`, `client_id`, `client_secret` (file mode 0o600, chỉ owner đọc được).
+2. Gửi file `install.json` cho mỗi chi nhánh qua kênh an toàn (Signal, Bitwarden Send, USB).
+3. Tại mỗi chi nhánh, IT chạy 1 lần: `node agent.js --register install.json` → prompts `Tên chi nhánh:` + `Địa điểm:` → gọi endpoint → nhận `branch_id` + `agent_token` → ghi `.env`.
+4. Agent khởi động: `node agent.js` (hoặc qua NSSM service).
+
+**Một install file có thể dùng cho nhiều chi nhánh** (re-run `--register` nhiều lần, mỗi lần 1 branch khác). Branch name UNIQUE trong phạm vi 1 client (2 client khác nhau được phép cùng tên "Branch 1").
+
+**Audit log** mỗi registration (grep-friendly): `logger.info('Branch self-registered', { branch_id, client_id, client_name, branch_name, ip })`.
+
+**HTTPS**: production phải có HTTPS (warn-only ở MVP — chỉ log warning, không block). Khi deploy với nginx + Let's Encrypt (§10.1 #4), warning sẽ tắt.
 
 Headers: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` (`standardHeaders: 'draft-7'`).
 
@@ -636,6 +658,7 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 | 5 | ~~Không có rate-limit per-client (chỉ per-IP login)~~ | ~~HQ spam được~~ | ✅ **Đã fix**: middleware `clientRateLimit` (`server/src/middleware/rate-limit-client.js`), key theo `req.client.id`, default `CLIENT_WRITE_RATE_PER_MIN=30` (env). Áp dụng cho `POST /api/print-jobs`. Nếu scale horizontal → đổi sang Redis store. |
 | 6 | Không có audit log ai in cái gì | Đã có guidance cho HQ (xem §4.8) | HQ cần truyền `metadata.user_id` khi POST job |
 | 7 | ~~Cron `cleanup-files` xóa PDF > 7 ngày — không audit~~ | ~~Mất data nếu cần reprint~~ | ✅ **Đã fix**: bảng `cleanup_audit` (`server/src/db.js`) ghi mỗi lần xóa (job_id, file_path, branch_id, reason, deleted_at, size_bytes) — `server/src/services/cleanup-audit.js` được gọi trong `db.transaction()` với `deleteJobById`, đảm bảo atomic (audit fail → delete roll back). Truy vết qua `SELECT * FROM cleanup_audit WHERE deleted_at > ?`. Schema + retention policy xem §10.3. |
+| 8 | HQ phải generate `agent_token` thủ công cho từng chi nhánh, copy qua chat → friction + leak risk khi scale 30+ branches | ✅ **Đã fix**: self-service onboarding flow — HQ chạy `node scripts/gen-client.js "Acme Corp"` với `OUTPUT_FILE=install.json` → JSON chứa `client_id`/`client_secret`/`server_url` (file mode 0o600). Mỗi chi nhánh IT chạy `agent --register install.json` → gọi `POST /api/setup/register-branch` với `client_id`+`client_secret`+`branch_name` → nhận `branch_id`+`agent_token`+`topic_prefix` → ghi `.env` (preserve existing keys). Audit log mỗi registration. Rate-limit 5/hr/IP (`SETUP_REGISTER_RATE_PER_HOUR`, env override). HTTPS warning-only trong production. Một install file dùng cho nhiều chi nhánh (re-run `--register`). Old endpoints `/api/branches` + `/api/admin/agents` giữ nguyên (back-compat). |
 
 ### 10.2. Cần monitor thường trực
 
@@ -710,6 +733,15 @@ SELECT job_id, file_path, reason, deleted_at, size_bytes
 - **Pre-existing bug fixed:** `api/printers.js:48` called `stmts.db.exec(...)` which is undefined — replaced with `await db.query('UPDATE printers SET is_default = 0 WHERE id = \$1', [p.id])`.
 - **Backup:** `server/src/jobs/backup-db.js` now shells out to `pg_dump` (subprocess) instead of SQLite's `VACUUM INTO`. Same retention policy.
 - **Production cutover:** xem §7.4 runbook (one-shot `migrate-sqlite-to-pg.js` script + psql verification).
+
+### Migration notes (Self-service onboarding §10.1 #8)
+
+- **`branches.client_id` column added** — `TEXT REFERENCES clients(id) ON DELETE SET NULL` (mirrors `jobs.client_id`). Used by `POST /api/setup/register-branch` to associate each branch with the client that owns it. Legacy branches (NULL `client_id`) unaffected.
+- **Partial UNIQUE INDEX** `idx_branches_client_name ON branches(client_id, name) WHERE client_id IS NOT NULL` — one client can't have two branches with the same name, but two different clients CAN both have a branch named "Branch 1". Legacy NULL-client_id branches bypass the index entirely.
+- **Idempotent ALTER TABLE** in `initSchema()`: `ALTER TABLE branches ADD COLUMN IF NOT EXISTS client_id ...` wrapped in try/catch to handle DBs that pre-date the column. pg-mem doesn't support `ADD COLUMN IF NOT EXISTS` so the catch ignores "already exists"; real PG handles it natively.
+- **`insertBranch` stmt updated** to accept `client_id` (now `@client_id` placeholder). Existing callers (`api/branches.js`, `api/admin.js`, `scripts/gen-agents.js`, db tests) omit the key → `orderParams` returns `undefined` → PG NULL. Zero breaking change.
+- **Old endpoints unchanged**: `POST /api/branches` (admin-only JWT) and `POST /api/admin/agents` (bulk create) still work for HQ who wants manual control. New endpoint `/api/setup/register-branch` is additive.
+- **Rate-limit `SETUP_REGISTER_RATE_PER_HOUR=5`** (default, env override). New `config.server.publicUrl` from env `SERVER_PUBLIC_URL` (defaults to `http://localhost:$PORT`).
 
 ### Giai đoạn 1 — MVP (✅ HOÀN THÀNH)
 
