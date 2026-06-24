@@ -10,11 +10,11 @@ const logger = require('../logger');
 
 // Rate limit chống brute force login
 const loginLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: config.rateLimit.authLoginPerMin,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many login attempts, try again later' },
+ windowMs: 60 * 1000,
+ max: config.rateLimit.authLoginPerMin,
+ standardHeaders: true,
+ legacyHeaders: false,
+ message: { error: 'Too many login attempts, try again later' },
 });
 
 /**
@@ -22,19 +22,21 @@ const loginLimiter = rateLimit({
  * Body: { client_id, client_secret }
  * Returns: { token, expires_in }
  */
-router.post('/login', loginLimiter, (req, res) => {
-  const { client_id, client_secret } = req.body || {};
-  if (!client_id || !client_secret) {
-    return res.status(400).json({ error: 'client_id and client_secret are required' });
-  }
-  const client = verifyClientCredentials(client_id, client_secret);
-  if (!client) {
-    logger.warn('Failed login attempt', { client_id, ip: req.ip });
-    return res.status(401).json({ error: 'Invalid credentials' });
-  }
-  const token = issueClientJwt(client);
-  logger.info('Client logged in', { client_id });
-  res.json({ token, token_type: 'Bearer', expires_in: config.jwt.expiresIn });
+router.post('/login', loginLimiter, async (req, res, next) => {
+ try {
+ const { client_id, client_secret } = req.body || {};
+ if (!client_id || !client_secret) {
+ return res.status(400).json({ error: 'client_id and client_secret are required' });
+ }
+ const client = await verifyClientCredentials(client_id, client_secret);
+ if (!client) {
+ logger.warn('Failed login attempt', { client_id, ip: req.ip });
+ return res.status(401).json({ error: 'Invalid credentials' });
+ }
+ const token = issueClientJwt(client);
+ logger.info('Client logged in', { client_id });
+ res.json({ token, token_type: 'Bearer', expires_in: config.jwt.expiresIn });
+ } catch (e) { next(e); }
 });
 
 /**
@@ -42,7 +44,7 @@ router.post('/login', loginLimiter, (req, res) => {
  * Verify JWT, trả info client
  */
 router.get('/me', verifyClient, (req, res) => {
-  res.json({ client: req.client });
+ res.json({ client: req.client });
 });
 
 module.exports = router;

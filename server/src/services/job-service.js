@@ -27,7 +27,7 @@ async function createJob({ branchId, printer, pdfBuffer, metadata, clientId }) {
  }
 
  // Check branch exists
- const branch = stmts.getBranchById.get(branchId);
+ const branch = await stmts.getBranchById.get(branchId);
  if (!branch) throw new HttpError(404, `Branch '${branchId}' not found`);
 
  // Validate PDF magic bytes
@@ -45,8 +45,8 @@ async function createJob({ branchId, printer, pdfBuffer, metadata, clientId }) {
 
  // Insert DB (status=pending)
  const metadataJson = JSON.stringify(metadata || {});
- stmts.insertJob.run({
-  id: jobId,
+ await stmts.insertJob.run({
+ id: jobId,
  branch_id: branchId,
  printer: printer || null,
  file_path: filePath,
@@ -64,7 +64,7 @@ async function createJob({ branchId, printer, pdfBuffer, metadata, clientId }) {
  metadata: metadata || {},
  created_at: Date.now(),
  });
- stmts.markJobSent.run({ sent_at: Date.now(), id: jobId });
+ await stmts.markJobSent.run({ sent_at: Date.now(), id: jobId });
  } catch (e) {
  logger.error('Failed to publish job to MQTT', { job_id: jobId, err: e.message });
  // Vẫn trả 201 - job sẽ được retry bởi cron
@@ -73,8 +73,8 @@ async function createJob({ branchId, printer, pdfBuffer, metadata, clientId }) {
  return { job_id: jobId, status: 'queued' };
 }
 
-function getJob(jobId) {
- const job = stmts.getJobById.get(jobId);
+async function getJob(jobId) {
+ const job = await stmts.getJobById.get(jobId);
  if (!job) throw new HttpError(404, 'Job not found');
  // Parse metadata JSON nếu có
  if (job.metadata) {
@@ -83,8 +83,8 @@ function getJob(jobId) {
  return job;
 }
 
-function listPendingForBranch(branchId) {
- const jobs = stmts.listPendingJobsByBranch.all(branchId);
+async function listPendingForBranch(branchId) {
+ const jobs = await stmts.listPendingJobsByBranch.all(branchId);
  return jobs.map((j) => {
  if (j.metadata) {
  try { j.metadata = JSON.parse(j.metadata); } catch (e) {}
@@ -93,8 +93,9 @@ function listPendingForBranch(branchId) {
  });
 }
 
-function listAllJobs() {
- return stmts.listJobs.all().map((j) => {
+async function listAllJobs() {
+ const jobs = await stmts.listJobs.all();
+ return jobs.map((j) => {
  if (j.metadata) {
  try { j.metadata = JSON.parse(j.metadata); } catch (e) {}
  }
@@ -106,26 +107,26 @@ function listAllJobs() {
  * Agent callback: báo printed/failed
  * Validate: branch_id trong job phải khớp với agent's branch (chống replay)
  */
-function updateJobStatus(jobId, branchId, status, errorMessage) {
+async function updateJobStatus(jobId, branchId, status, errorMessage) {
  if (status !== 'printed' && status !== 'failed') {
-  throw new HttpError(400, "status must be 'printed' or 'failed'");
+ throw new HttpError(400, "status must be 'printed' or 'failed'");
  }
- const job = stmts.getJobById.get(jobId);
+ const job = await stmts.getJobById.get(jobId);
  if (!job) throw new HttpError(404, 'Job not found');
  if (job.branch_id !== branchId) {
  throw new HttpError(403, 'Branch mismatch');
  }
  if (status === 'printed') {
- stmts.markJobPrinted.run({ printed_at: Date.now(), id: jobId });
+ await stmts.markJobPrinted.run({ printed_at: Date.now(), id: jobId });
  } else {
- stmts.markJobFailed.run({
+ await stmts.markJobFailed.run({
  failed_at: Date.now(),
  error: errorMessage || 'unknown',
  id: jobId,
  });
  }
  // Update branch last_seen
- stmts.updateBranchStatus.run({
+ await stmts.updateBranchStatus.run({
  status: 'online',
  last_seen_at: Date.now(),
  id: branchId,
@@ -143,8 +144,8 @@ function updateJobStatus(jobId, branchId, status, errorMessage) {
  * Returns: { absolutePath, fileSize }
  * Throws HttpError nếu lỗi
  */
-function getJobFileForAgent(jobId, branchId) {
- const job = stmts.getJobById.get(jobId);
+async function getJobFileForAgent(jobId, branchId) {
+ const job = await stmts.getJobById.get(jobId);
  if (!job) throw new HttpError(404, 'Job not found');
  if (job.branch_id !== branchId) {
  throw new HttpError(403, 'Branch mismatch');

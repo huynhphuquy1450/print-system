@@ -9,19 +9,13 @@ const audit = require('../services/cleanup-audit');
 let lastRunDate = null;
 let checkInterval = null;
 
-// Audit + job delete trong 1 transaction: nếu audit throw, delete roll back.
-const deleteOneJob = db.transaction((job, reason, sizeBytes) => {
- audit.record(db, {
- job_id: job.id,
- file_path: job.file_path,
- branch_id: job.branch_id,
- reason,
- size_bytes: sizeBytes,
- });
- stmts.deleteJobById.run(job.id);
-});
-
-function run() {
+/**
+ * Cron: mỗi giờ kiểm tra; nếu đúng CLEANUP_HOUR thì tìm các job printed/failed
+ * cũ hơn retention và xóa PDF + row + ghi audit trong 1 transaction per job.
+ * Per-job transaction preserved from the original SQLite-based design — if any
+ * single job's audit/delete fails, only that job is rolled back, others commit.
+ */
+async function run() {
  try {
  const now = new Date();
  const hour = now.getHours();
@@ -34,7 +28,7 @@ function run() {
  const cutoffMs = Date.now() - config.storage.retentionDays * 24 * 60 * 60 * 1000;
 
  // 1. Tìm job rows printed/failed cũ
- const oldJobs = stmts.findOldJobs.all(cutoffMs);
+ const oldJobs = await stmts.findOldJobs.all({ cutoff: cutoffMs });
 
  if (oldJobs.length === 0) {
  logger.info('Cleanup: no old jobs to remove');
@@ -59,7 +53,17 @@ function run() {
  }
  const reason = fileExisted ? 'retention' : 'file-missing';
  try {
- deleteOneJob(job, reason, sizeBytes);
+ // Audit + job delete trong 1 transaction: nếu audit throw, delete roll back.
+ await db.transaction(async (tx) => {
+ await audit.record(tx, {
+ job_id: job.id,
+ file_path: job.file_path,
+ branch_id: job.branch_id,
+ reason,
+ size_bytes: sizeBytes,
+ });
+ await tx.stmts.deleteJobById.run({ id: job.id });
+ });
  deleted++;
  } catch (e) {
  // Transaction tự rollback — job row vẫn còn, retry lần sau.

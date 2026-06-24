@@ -20,7 +20,8 @@ router.post(
  verifyClient,
  clientRateLimit(),
  pdfUpload,
- (req, res, next) => {
+ async (req, res, next) => {
+ try {
  // Inline field validation (multer parsed text fields into req.body)
  const errors = [];
  if (!req.body.branch_id || typeof req.body.branch_id !== 'string') {
@@ -45,16 +46,15 @@ router.post(
  try { metadata = JSON.parse(req.body.metadata); } catch (e) { metadata = {}; }
  }
 
- jobService
- .createJob({
+ const result = await jobService.createJob({
  branchId: req.body.branch_id,
  printer: req.body.printer || null,
  pdfBuffer: req.file.buffer,
  metadata,
  clientId: req.client.id,
- })
- .then((result) => res.status(201).json(result))
- .catch(next);
+ });
+ res.status(201).json(result);
+ } catch (e) { next(e); }
  }
 );
 
@@ -63,7 +63,7 @@ router.post(
  * Query: ?branch_id=X
  * PHẢI đặt TRƯỚC /:id để tránh nuốt route
  */
-router.get('/', verifyAgent, (req, res, next) => {
+router.get('/', verifyAgent, async (req, res, next) => {
  try {
  const branchId = req.query.branch_id;
  if (!branchId) {
@@ -72,42 +72,36 @@ router.get('/', verifyAgent, (req, res, next) => {
  if (req.agent.branchId !== branchId) {
  return res.status(403).json({ error: 'Branch mismatch' });
  }
- const jobs = jobService.listPendingForBranch(branchId);
+ const jobs = await jobService.listPendingForBranch(branchId);
  res.json({ jobs });
- } catch (e) {
- next(e);
- }
+ } catch (e) { next(e); }
 });
 
 /**
  * GET /api/print-jobs/:id (Client JWT) - xem status
  */
-router.get('/:id', verifyClient, (req, res, next) => {
+router.get('/:id', verifyClient, async (req, res, next) => {
  try {
- const job = jobService.getJob(req.params.id);
+ const job = await jobService.getJob(req.params.id);
  res.json(job);
- } catch (e) {
- next(e);
- }
+ } catch (e) { next(e); }
 });
 
 /**
  * POST /api/print-jobs/:id/status (Agent token) - callback báo printed/failed
  * Body: { status: 'printed'|'failed', error? }
  */
-router.post('/:id/status', verifyAgent, (req, res, next) => {
+router.post('/:id/status', verifyAgent, async (req, res, next) => {
  try {
  const { status, error } = req.body || {};
- const result = jobService.updateJobStatus(
+ const result = await jobService.updateJobStatus(
  req.params.id,
  req.agent.branchId,
  status,
  error
  );
  res.json(result);
- } catch (e) {
- next(e);
- }
+ } catch (e) { next(e); }
 });
 
 /**
@@ -116,9 +110,9 @@ router.post('/:id/status', verifyAgent, (req, res, next) => {
  * Chỉ cho job status 'pending' hoặc 'sent'. File printed/failed đã bị cleanup xóa.
  * Response: application/pdf binary, header Content-Disposition: attachment
  */
-router.get('/:id/file', verifyAgent, (req, res, next) => {
+router.get('/:id/file', verifyAgent, async (req, res, next) => {
  try {
- const { absolutePath, fileSize } = jobService.getJobFileForAgent(
+ const { absolutePath, fileSize } = await jobService.getJobFileForAgent(
  req.params.id,
  req.agent.branchId
  );
@@ -129,12 +123,10 @@ router.get('/:id/file', verifyAgent, (req, res, next) => {
  });
  // Stream file (không load hết vào RAM)
  const fs = require('fs');
-  fs.createReadStream(absolutePath)
+ fs.createReadStream(absolutePath)
  .on('error', (e) => next(Object.assign(new Error('Stream error: ' + e.message), { status: 500 })))
  .pipe(res);
- } catch (e) {
- next(e);
- }
+ } catch (e) { next(e); }
 });
 
 module.exports = router;

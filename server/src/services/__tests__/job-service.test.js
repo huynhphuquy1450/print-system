@@ -1,7 +1,7 @@
 'use strict';
 
 // Hoisted mocks — same pattern as auth-service.test.js: jest.mock('../../db')
-// chặn better-sqlite3 khởi tạo, ta assert trên stmts.* jest.fn().
+// chặn pg khởi tạo, ta assert trên stmts.* jest.fn().
 jest.mock('../../db', () => ({
  stmts: {
  getBranchById: { get: jest.fn() },
@@ -70,16 +70,16 @@ describe('job-service', () => {
  mqttClient.isConnected.mockReturnValue(true);
 
  // db defaults — branch tồn tại, job not found (override per test)
- stmts.getBranchById.get.mockReturnValue(BRANCH_ROW);
- stmts.insertJob.run.mockReturnValue({ changes: 1 });
- stmts.markJobSent.run.mockReturnValue({ changes: 1 });
- stmts.markJobPrinted.run.mockReturnValue({ changes: 1 });
- stmts.markJobFailed.run.mockReturnValue({ changes: 1 });
- stmts.updateBranchStatus.run.mockReturnValue({ changes: 1 });
- stmts.getJobById.get.mockReturnValue(null);
- stmts.listPendingJobsByBranch.all.mockReturnValue([]);
- stmts.listJobs.all.mockReturnValue([]);
- stmts.findStaleJobs.all.mockReturnValue([]);
+ stmts.getBranchById.get.mockResolvedValue(BRANCH_ROW);
+ stmts.insertJob.run.mockResolvedValue({ rowCount: 1 });
+ stmts.markJobSent.run.mockResolvedValue({ rowCount: 1 });
+ stmts.markJobPrinted.run.mockResolvedValue({ rowCount: 1 });
+ stmts.markJobFailed.run.mockResolvedValue({ rowCount: 1 });
+ stmts.updateBranchStatus.run.mockResolvedValue({ rowCount: 1 });
+ stmts.getJobById.get.mockResolvedValue(null);
+ stmts.listPendingJobsByBranch.all.mockResolvedValue([]);
+ stmts.listJobs.all.mockResolvedValue([]);
+ stmts.findStaleJobs.all.mockResolvedValue([]);
  });
 
  describe('HttpError', () => {
@@ -165,7 +165,7 @@ describe('job-service', () => {
  });
 
  test('throws 404 if branch not found', async () => {
- stmts.getBranchById.get.mockReturnValue(null);
+ stmts.getBranchById.get.mockResolvedValue(null);
  await expect(
  createJob({ branchId: 'br_missing', pdfBuffer: VALID_PDF_BUF, metadata: {}, clientId: 'c' })
  ).rejects.toMatchObject({ status: 404, message: /Branch 'br_missing' not found/ });
@@ -214,62 +214,62 @@ describe('job-service', () => {
  });
 
  describe('getJob', () => {
- test('throws 404 if job not found', () => {
- stmts.getJobById.get.mockReturnValue(null);
- expect(() => getJob('job_missing')).toThrow(HttpError);
+ test('throws 404 if job not found', async () => {
+ stmts.getJobById.get.mockResolvedValue(null);
+ await expect(getJob('job_missing')).rejects.toBeInstanceOf(HttpError);
  });
 
- test('returns row with metadata parsed to object', () => {
- stmts.getJobById.get.mockReturnValue({
+ test('returns row with metadata parsed to object', async () => {
+ stmts.getJobById.get.mockResolvedValue({
  id: 'job_1',
  status: 'printed',
  metadata: '{"user_id":"EMP-1","note":"contract"}',
  });
- const job = getJob('job_1');
+ const job = await getJob('job_1');
  expect(job.id).toBe('job_1');
  expect(job.metadata).toEqual({ user_id: 'EMP-1', note: 'contract' });
  });
 
- test('malformed metadata JSON → stays as raw string, no throw', () => {
- stmts.getJobById.get.mockReturnValue({
+ test('malformed metadata JSON → stays as raw string, no throw', async () => {
+ stmts.getJobById.get.mockResolvedValue({
  id: 'job_1',
  status: 'printed',
  metadata: '{not valid json',
  });
- const job = getJob('job_1');
+ const job = await getJob('job_1');
  expect(job.metadata).toBe('{not valid json');
  });
  });
 
  describe('listPendingForBranch', () => {
- test('returns empty array when no jobs', () => {
- stmts.listPendingJobsByBranch.all.mockReturnValue([]);
- expect(listPendingForBranch(BRANCH)).toEqual([]);
+ test('returns empty array when no jobs', async () => {
+ stmts.listPendingJobsByBranch.all.mockResolvedValue([]);
+ await expect(listPendingForBranch(BRANCH)).resolves.toEqual([]);
  });
 
- test('parses metadata per item, malformed → raw string', () => {
- stmts.listPendingJobsByBranch.all.mockReturnValue([
+ test('parses metadata per item, malformed → raw string', async () => {
+ stmts.listPendingJobsByBranch.all.mockResolvedValue([
  { id: 'job_1', metadata: '{"k":1}' },
  { id: 'job_2', metadata: 'oops' },
  ]);
- const result = listPendingForBranch(BRANCH);
+ const result = await listPendingForBranch(BRANCH);
  expect(result[0].metadata).toEqual({ k: 1 });
  expect(result[1].metadata).toBe('oops');
  });
  });
 
  describe('listAllJobs', () => {
- test('returns empty array when no jobs', () => {
- stmts.listJobs.all.mockReturnValue([]);
- expect(listAllJobs()).toEqual([]);
+ test('returns empty array when no jobs', async () => {
+ stmts.listJobs.all.mockResolvedValue([]);
+ await expect(listAllJobs()).resolves.toEqual([]);
  });
 
- test('parses metadata per item', () => {
- stmts.listJobs.all.mockReturnValue([
+ test('parses metadata per item', async () => {
+ stmts.listJobs.all.mockResolvedValue([
  { id: 'job_1', metadata: '{"k":1}' },
  { id: 'job_2', metadata: null },
  ]);
- const result = listAllJobs();
+ const result = await listAllJobs();
  expect(result[0].metadata).toEqual({ k: 1 });
  expect(result[1].metadata).toBeNull();
  });
@@ -278,9 +278,9 @@ describe('job-service', () => {
  describe('updateJobStatus', () => {
  const existingJob = { id: 'job_1', branch_id: BRANCH, status: 'sent' };
 
- test('status="printed" → markJobPrinted + updateBranchStatus, returns ok', () => {
- stmts.getJobById.get.mockReturnValue(existingJob);
- const result = updateJobStatus('job_1', BRANCH, 'printed', undefined);
+ test('status="printed" → markJobPrinted + updateBranchStatus, returns ok', async () => {
+ stmts.getJobById.get.mockResolvedValue(existingJob);
+ const result = await updateJobStatus('job_1', BRANCH, 'printed', undefined);
  expect(stmts.markJobPrinted.run).toHaveBeenCalledTimes(1);
  expect(stmts.markJobPrinted.run.mock.calls[0][0].id).toBe('job_1');
  expect(typeof stmts.markJobPrinted.run.mock.calls[0][0].printed_at).toBe('number');
@@ -291,9 +291,9 @@ describe('job-service', () => {
  expect(result).toEqual({ ok: true });
  });
 
- test('status="failed" → markJobFailed with error message', () => {
- stmts.getJobById.get.mockReturnValue(existingJob);
- updateJobStatus('job_1', BRANCH, 'failed', 'paper jam');
+ test('status="failed" → markJobFailed with error message', async () => {
+ stmts.getJobById.get.mockResolvedValue(existingJob);
+ await updateJobStatus('job_1', BRANCH, 'failed', 'paper jam');
  expect(stmts.markJobFailed.run).toHaveBeenCalledTimes(1);
  const arg = stmts.markJobFailed.run.mock.calls[0][0];
  expect(arg.id).toBe('job_1');
@@ -302,32 +302,32 @@ describe('job-service', () => {
  expect(stmts.markJobPrinted.run).not.toHaveBeenCalled();
  });
 
- test('status="failed" with no errorMessage → stored as "unknown"', () => {
- stmts.getJobById.get.mockReturnValue(existingJob);
- updateJobStatus('job_1', BRANCH, 'failed', undefined);
+ test('status="failed" with no errorMessage → stored as "unknown"', async () => {
+ stmts.getJobById.get.mockResolvedValue(existingJob);
+ await updateJobStatus('job_1', BRANCH, 'failed', undefined);
  expect(stmts.markJobFailed.run.mock.calls[0][0].error).toBe('unknown');
  });
 
- test('invalid status → 400, no DB writes', () => {
- stmts.getJobById.get.mockReturnValue(existingJob);
- expect(() => updateJobStatus('job_1', BRANCH, 'pending', undefined)).toThrow(
+ test('invalid status → 400, no DB writes', async () => {
+ stmts.getJobById.get.mockResolvedValue(existingJob);
+ await expect(updateJobStatus('job_1', BRANCH, 'pending', undefined)).rejects.toThrow(
  /status must be/
  );
  expect(stmts.markJobPrinted.run).not.toHaveBeenCalled();
  expect(stmts.markJobFailed.run).not.toHaveBeenCalled();
  });
 
- test('job not found → 404', () => {
- stmts.getJobById.get.mockReturnValue(null);
- expect(() => updateJobStatus('job_missing', BRANCH, 'printed', undefined)).toThrow(
+ test('job not found → 404', async () => {
+ stmts.getJobById.get.mockResolvedValue(null);
+ await expect(updateJobStatus('job_missing', BRANCH, 'printed', undefined)).rejects.toThrow(
  /Job not found/
  );
  expect(stmts.markJobPrinted.run).not.toHaveBeenCalled();
  });
 
- test('branch mismatch → 403, no status update, no branch update', () => {
- stmts.getJobById.get.mockReturnValue(existingJob);
- expect(() => updateJobStatus('job_1', 'br_OTHER', 'printed', undefined)).toThrow(
+ test('branch mismatch → 403, no status update, no branch update', async () => {
+ stmts.getJobById.get.mockResolvedValue(existingJob);
+ await expect(updateJobStatus('job_1', 'br_OTHER', 'printed', undefined)).rejects.toThrow(
  /Branch mismatch/
  );
  expect(stmts.markJobPrinted.run).not.toHaveBeenCalled();
@@ -337,64 +337,64 @@ describe('job-service', () => {
  });
 
  describe('getJobFileForAgent', () => {
- test('happy path: status=pending, file exists → returns absolutePath + fileSize', () => {
- stmts.getJobById.get.mockReturnValue({
+ test('happy path: status=pending, file exists → returns absolutePath + fileSize', async () => {
+ stmts.getJobById.get.mockResolvedValue({
  id: 'job_1',
  branch_id: BRANCH,
  status: 'pending',
  file_path: '/opt/storage/job_1.pdf',
  });
  fs.statSync.mockReturnValue({ size: 12345 });
- const result = getJobFileForAgent('job_1', BRANCH);
+ const result = await getJobFileForAgent('job_1', BRANCH);
  expect(result.absolutePath).toBe('/opt/storage/job_1.pdf');
  expect(result.fileSize).toBe(12345);
  });
 
- test('status=sent is also downloadable', () => {
- stmts.getJobById.get.mockReturnValue({
+ test('status=sent is also downloadable', async () => {
+ stmts.getJobById.get.mockResolvedValue({
  id: 'job_1',
  branch_id: BRANCH,
  status: 'sent',
  file_path: '/p.pdf',
  });
- const result = getJobFileForAgent('job_1', BRANCH);
+ const result = await getJobFileForAgent('job_1', BRANCH);
  expect(result.absolutePath).toBe('/p.pdf');
  });
 
- test('job not found → 404', () => {
- stmts.getJobById.get.mockReturnValue(null);
- expect(() => getJobFileForAgent('job_x', BRANCH)).toThrow(HttpError);
+ test('job not found → 404', async () => {
+ stmts.getJobById.get.mockResolvedValue(null);
+ await expect(getJobFileForAgent('job_x', BRANCH)).rejects.toBeInstanceOf(HttpError);
  });
 
- test('branch mismatch → 403', () => {
- stmts.getJobById.get.mockReturnValue({
+ test('branch mismatch → 403', async () => {
+ stmts.getJobById.get.mockResolvedValue({
  id: 'job_1',
  branch_id: BRANCH,
  status: 'pending',
  file_path: '/p.pdf',
  });
- expect(() => getJobFileForAgent('job_1', 'br_OTHER')).toThrow(/Branch mismatch/);
+ await expect(getJobFileForAgent('job_1', 'br_OTHER')).rejects.toThrow(/Branch mismatch/);
  });
 
- test('status=printed → 410 Gone', () => {
- stmts.getJobById.get.mockReturnValue({
+ test('status=printed → 410 Gone', async () => {
+ stmts.getJobById.get.mockResolvedValue({
  id: 'job_1',
  branch_id: BRANCH,
  status: 'printed',
  file_path: '/p.pdf',
  });
- expect(() => getJobFileForAgent('job_1', BRANCH)).toThrow(/no longer available/);
+ await expect(getJobFileForAgent('job_1', BRANCH)).rejects.toThrow(/no longer available/);
  });
 
- test('file missing on disk → 404', () => {
- stmts.getJobById.get.mockReturnValue({
+ test('file missing on disk → 404', async () => {
+ stmts.getJobById.get.mockResolvedValue({
  id: 'job_1',
  branch_id: BRANCH,
  status: 'pending',
  file_path: '/p.pdf',
  });
  fs.existsSync.mockReturnValue(false);
- expect(() => getJobFileForAgent('job_1', BRANCH)).toThrow(/PDF file missing/);
+ await expect(getJobFileForAgent('job_1', BRANCH)).rejects.toThrow(/PDF file missing/);
  });
  });
 });
