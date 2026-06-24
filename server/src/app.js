@@ -12,6 +12,7 @@ const jobsRouter = require('./api/jobs');
 const branchesRouter = require('./api/branches');
 const printersRouter = require('./api/printers');
 const adminRouter = require('./api/admin');
+const setupRouter = require('./api/setup');
 
 const app = express();
 
@@ -48,6 +49,7 @@ app.use('/api/print-jobs', jobsRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/printers', printersRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/setup', setupRouter);
 
 // 404
 app.use((req, res) => {

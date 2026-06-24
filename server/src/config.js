@@ -67,6 +67,14 @@ const config = {
  authLoginPerMin: parseInt(optional('AUTH_LOGIN_RATE_PER_MIN', '5'), 10),
  // Per-client write rate limit: chống HQ spam POST jobs/branches/printers/agents
  clientWritePerMin: parseInt(optional('CLIENT_WRITE_RATE_PER_MIN', '30'), 10),
+ // Per-IP self-service branch registration: chống brute force client_secret +
+ // branch-name squatting. Registration rarer than login → hourly window.
+ setupRegisterPerHour: parseInt(optional('SETUP_REGISTER_RATE_PER_HOUR', '5'), 10),
+ },
+
+ server: {
+ // Public URL of this server (used in install JSON, defaults to http://localhost:$PORT)
+ publicUrl: optional('SERVER_PUBLIC_URL', `http://localhost:${optional('PORT', '3000')}`),
  },
 
  // Topic prefix helper
