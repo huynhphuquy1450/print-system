@@ -9,4 +9,6 @@ process.env.MQTT_USER = 'test-user';
 process.env.MQTT_PASS = 'test-pass';
 process.env.JWT_SECRET = 'test-jwt-secret-not-real-0000000000000000';
 process.env.AGENT_TOKEN_SECRET = 'test-agent-secret-not-real-000000000000';
+// pg-mem in-process tests will override this; placeholder keeps config from throwing
+process.env.DATABASE_URL = 'postgres://test:test@localhost:5432/test_db';
 process.env.DB_PATH = ':memory:';
