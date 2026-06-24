@@ -467,6 +467,43 @@ pm2 logs print-service --lines 30
 ./scripts/send-job.sh /tmp/test.pdf
 ```
 
+### 7.4. Cắt sang PostgreSQL (one-shot, từ SQLite cũ)
+
+Khi cần scale > 100 jobs/phút, làm theo các bước sau trên VPS:
+
+```bash
+# 1. Cài PostgreSQL
+sudo apt install -y postgresql postgresql-contrib
+sudo -u postgres createuser printservice -P # nhập password
+sudo -u postgres createdb printservice -O printservice
+
+# 2. Set DATABASE_URL trong .env (chỉnh đúng user/pass/host)
+echo "DATABASE_URL=postgres://printservice:YOURPASS@localhost:5432/printservice" >> /opt/print-service/.env
+
+# 3. (Optional) Migrate dữ liệu cũ từ SQLite
+pm2 stop print-service
+cd /opt/print-service
+DB_PATH=./data/jobs.db DATABASE_URL=$DATABASE_URL node server/scripts/migrate-sqlite-to-pg.js
+# Kiểm tra row counts khớp với bảng gốc:
+# sqlite3 data/jobs.db 'SELECT COUNT(*) FROM jobs;'  → expected_jobs
+# psql $DATABASE_URL -c 'SELECT COUNT(*) FROM jobs;' → expected_jobs
+
+# 4. Khởi động lại — schema auto-init, data đã có
+pm2 start print-service
+curl -s http://localhost:3000/health # expect db:"ok"
+
+# 5. (Optional) Giữ SQLite file 1 tuần để rollback nếu PG fail.
+# Sau 1 tuần OK thì xóa.
+```
+
+**Rollback:** nếu PG có vấn đề, restore SQLite file từ backup (PostgreSQL
+backups ở `data/backups/jobs-*.sql` chỉ chứa schema — restore bằng
+`psql $DATABASE_URL < backup.sql`).
+
+**Backup hàng ngày:** cron `backup-db` giờ gọi `pg_dump` thay vì
+`VACUUM INTO` (xem `server/src/jobs/backup-db.js`). Đảm bảo `pg_dump` có
+trong PATH trên VPS (`apt install postgresql-client`).
+
 ---
 
 ## 8. SECRET MANAGEMENT
@@ -593,7 +630,7 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 | # | Vấn đề | Impact | Workaround |
 |---|---|---|---|
 | 1 | ~~PDF base64 trong JSON → request lớn, tốn RAM~~ | ~~Memory peak ~50MB/job~~ | ✅ **Đã fix**: `POST /api/print-jobs` giờ nhận `multipart/form-data` với file `pdf` binary (multer memoryStorage, 50 MB cap, application/pdf filter). `express.json` giảm xuống 1 KB (chỉ đủ cho các endpoint metadata). Agent nhận metadata-only MQTT payload (`{job_id, printer, metadata, version: 2}`) và luôn tải PDF qua `GET /api/print-jobs/:id/file` — 1 code path duy nhất cho cả real-time lẫn reconnect. **BREAKING CHANGE** cho HQ client — xem §4.3 và commit body. |
-| 2 | SQLite single-file → không scale > 100 jobs/phút | DB lock khi concurrent | OK cho MVP, cần PostgreSQL khi scale |
+| 2 | ~~SQLite single-file → không scale > 100 jobs/phút~~ | ~~DB lock khi concurrent~~ | ✅ **Đã fix**: server đã chuyển sang PostgreSQL (`pg` driver, `pg-mem` cho in-process integration tests). Schema giữ nguyên (BIGINT epoch timestamps, SERIAL PK trên `cleanup_audit`, FK constraints preserved). Async/await trên toàn bộ service + API + middleware + cron. Connection pooling (Pool max=10). Transaction wrapper `db.transaction(fn)` thay cho `better-sqlite3` sync. Backup chuyển sang `pg_dump`. Migration one-shot: `server/scripts/migrate-sqlite-to-pg.js`. Xem §6 deployment + §11 notes. |
 | 3 | Cert self-signed → client phải `--cafile` hoặc `rejectUnauthorized:false` | Dev friction | Sẽ mua domain + Let's Encrypt (GĐ2) |
 | 4 | Không có HTTPS cho API (chỉ HTTP) | Insecure trên internet | OK vì VPN hoặc local; cần nginx reverse proxy + certbot khi public |
 | 5 | ~~Không có rate-limit per-client (chỉ per-IP login)~~ | ~~HQ spam được~~ | ✅ **Đã fix**: middleware `clientRateLimit` (`server/src/middleware/rate-limit-client.js`), key theo `req.client.id`, default `CLIENT_WRITE_RATE_PER_MIN=30` (env). Áp dụng cho `POST /api/print-jobs`. Nếu scale horizontal → đổi sang Redis store. |
@@ -660,6 +697,20 @@ SELECT job_id, file_path, reason, deleted_at, size_bytes
 
 ## 11. ROADMAP
 
+### Migration notes (PostgreSQL §10.1 #2)
+
+- **Driver:** `pg` (node-postgres) ^8.11.5 — pure JS, no native compilation.
+- **Test driver:** `pg-mem` ^3.0.4 for in-process integration tests. CI runs without Docker.
+- **Connection:** `new Pool({ connectionString, max: 10 })` singleton in `server/src/db.js`.
+- **BIGINT timestamps:** kept as INTEGER (BIGINT in PG) ms-epoch to avoid JS-side date parsing changes. `pg.types.setTypeParser(20, parseInt)` at module load.
+- **Prepared statements:** same `stmts.*` shape as SQLite (`get`/`all`/`run`), now async. Named-param style `@name` translated to `$N` at compile time.
+- **Transaction wrapper:** `db.transaction(async (tx) => {...})` replaces `better-sqlite3`'s sync `db.transaction(fn)`. Per-job atomicity preserved (each job's audit+delete is one BEGIN/COMMIT block).
+- **UNIQUE errors:** PG error code `23505` (not the substring `'UNIQUE'` — PG messages don't include that word). Code checks `e.code === '23505'`.
+- **Transaction isolation:** default `READ COMMITTED` (PG) vs. SQLite's `SERIALIZABLE`. Acceptable for current workload; revisit if concurrent inserts show race conditions.
+- **Pre-existing bug fixed:** `api/printers.js:48` called `stmts.db.exec(...)` which is undefined — replaced with `await db.query('UPDATE printers SET is_default = 0 WHERE id = \$1', [p.id])`.
+- **Backup:** `server/src/jobs/backup-db.js` now shells out to `pg_dump` (subprocess) instead of SQLite's `VACUUM INTO`. Same retention policy.
+- **Production cutover:** xem §7.4 runbook (one-shot `migrate-sqlite-to-pg.js` script + psql verification).
+
 ### Giai đoạn 1 — MVP (✅ HOÀN THÀNH)
 
 - ✅ Server + Mosquitto trên VPS
@@ -690,7 +741,7 @@ SELECT job_id, file_path, reason, deleted_at, size_bytes
 ### Giai đoạn 3 — Scale out (6-12 tháng, optional)
 
 - Retention policy cho bảng `cleanup_audit` (§10.3) — script tự động VACUUM hoặc `DELETE` cũ
-- PostgreSQL thay SQLite (nếu > 100 jobs/phút)
+- ~~PostgreSQL thay SQLite (nếu > 100 jobs/phút)~~ ✅ Done trong §10.1 #2
 - Redis cache cho job metadata
 - Multi-region VPS (failover)
 - Web UI cho HQ (xem job history, retry manual)
