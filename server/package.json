@@ -21,7 +21,8 @@
    "<rootDir>/jest.setup.js"
   ],
   "testMatch": [
-   "<rootDir>/src/**/__tests__/**/*.test.js"
+   "<rootDir>/src/**/__tests__/**/*.test.js",
+   "<rootDir>/scripts/**/__tests__/**/*.test.js"
   ],
   "collectCoverageFrom": [
    "src/services/*.js",
