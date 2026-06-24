@@ -1,0 +1,153 @@
+'use strict';
+
+// Tests for agent/register.js — the self-service onboarding CLI used by
+// branch IT to claim a branch_id + agent_token from the install JSON.
+
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+const register = require('../register');
+
+function makeInstall(tmpDir) {
+ const install = {
+ server_url: 'http://localhost:3000',
+ client_id: 'cli_test_123',
+ client_secret: 'plaintext_secret',
+ client_name: 'Acme Corp',
+ created_at: '2026-06-24T16:00:00.000Z',
+ };
+ const p = path.join(tmpDir, 'install.json');
+ fs.writeFileSync(p, JSON.stringify(install, null, 2));
+ return p;
+}
+
+describe('agent --register', () => {
+ let tmpDir;
+ beforeEach(() => {
+ tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-register-'));
+ });
+ afterEach(() => {
+ fs.rmSync(tmpDir, { recursive: true, force: true });
+ });
+
+ test('happy path: writes .env with correct keys', async () => {
+ const installPath = makeInstall(tmpDir);
+ const envPath = path.join(tmpDir, '.env');
+ fs.writeFileSync(envPath, 'EXISTING_KEY=keep_me\n');
+
+ const fakeFetch = jest.fn().mockResolvedValue({
+ ok: true,
+ status: 201,
+ json: async () => ({
+ branch_id: 'br_xyz',
+ agent_token: 'a'.repeat(64),
+ topic_prefix: 'company/printer',
+ }),
+ });
+
+ const result = await register(installPath, {
+ fetch: fakeFetch,
+ injectPrompts: { branchName: 'Chi nhánh Q1', location: 'HCM' },
+ envPath,
+ });
+
+ expect(fakeFetch).toHaveBeenCalledTimes(1);
+ const [calledUrl, calledOpts] = fakeFetch.mock.calls[0];
+ expect(calledUrl).toBe('http://localhost:3000/api/setup/register-branch');
+ expect(calledOpts.method).toBe('POST');
+ const body = JSON.parse(calledOpts.body);
+ expect(body.client_id).toBe('cli_test_123');
+ expect(body.client_secret).toBe('plaintext_secret');
+ expect(body.branch_name).toBe('Chi nhánh Q1');
+ expect(body.location).toBe('HCM');
+
+ expect(result.branch_id).toBe('br_xyz');
+ expect(result.envPath).toBe(envPath);
+
+ const envContent = fs.readFileSync(envPath, 'utf8');
+ expect(envContent).toMatch(/EXISTING_KEY=keep_me/);
+ expect(envContent).toMatch(/^SERVER_URL=http:\/\/localhost:3000$/m);
+ expect(envContent).toMatch(/^BRANCH_ID=br_xyz$/m);
+ expect(envContent).toMatch(/^AGENT_TOKEN=a{64}$/m);
+ expect(envContent).toMatch(/^MQTT_TOPIC_PREFIX=company\/printer$/m);
+ });
+
+ test('server 401 → throws with status, no .env write', async () => {
+ const installPath = makeInstall(tmpDir);
+ const envPath = path.join(tmpDir, '.env');
+ fs.writeFileSync(envPath, 'BEFORE=yes\n');
+
+ const fakeFetch = jest.fn().mockResolvedValue({
+ ok: false,
+ status: 401,
+ statusText: 'Unauthorized',
+ json: async () => ({ error: 'Invalid client credentials' }),
+ });
+
+ await expect(register(installPath, {
+ fetch: fakeFetch,
+ injectPrompts: { branchName: 'B1' },
+ envPath,
+ })).rejects.toMatchObject({
+ status: 401,
+ message: expect.stringContaining('Invalid client credentials'),
+ });
+
+ // .env unchanged
+ const envContent = fs.readFileSync(envPath, 'utf8');
+ expect(envContent).toBe('BEFORE=yes\n');
+ });
+
+ test('server 409 (duplicate name) → user-friendly error', async () => {
+ const installPath = makeInstall(tmpDir);
+ const envPath = path.join(tmpDir, '.env');
+
+ const fakeFetch = jest.fn().mockResolvedValue({
+ ok: false,
+ status: 409,
+ statusText: 'Conflict',
+ json: async () => ({
+ error: "Branch 'B1' already exists for this client",
+ }),
+ });
+
+ await expect(register(installPath, {
+ fetch: fakeFetch,
+ injectPrompts: { branchName: 'B1' },
+ envPath,
+ })).rejects.toThrow(/already exists/);
+
+ // .env not created
+ expect(fs.existsSync(envPath)).toBe(false);
+ });
+
+ test('install file missing required fields → throws early', async () => {
+ const installPath = path.join(tmpDir, 'install.json');
+ fs.writeFileSync(installPath, JSON.stringify({ server_url: 'http://x' }));
+
+ await expect(register(installPath, {
+ fetch: jest.fn(),
+ injectPrompts: { branchName: 'B1' },
+ envPath: path.join(tmpDir, '.env'),
+ })).rejects.toThrow(/missing required fields/);
+ });
+
+ test('branch_name empty (from prompt) → throws', async () => {
+ const installPath = makeInstall(tmpDir);
+ const envPath = path.join(tmpDir, '.env');
+
+ // Mock readline to return empty branch name
+ const fakeRl = {
+ question: (_q, cb) => cb(''),
+ close: () => {},
+ };
+ const fakeReadline = { createInterface: () => fakeRl };
+
+ await expect(register(installPath, {
+ fetch: jest.fn(),
+ readline: fakeReadline,
+ envPath,
+ })).rejects.toThrow(/branch_name required/);
+ });
+});

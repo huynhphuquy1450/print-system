@@ -7,6 +7,20 @@
 //
 // Spec reference: SERVER_SPEC §12
 
+// Handle --register BEFORE requiring env vars (the agent doesn't yet have
+// BRANCH_ID/AGENT_TOKEN during first-time registration). Detected by
+// presence of --register in argv; install JSON path is the next arg.
+if (process.argv.includes('--register')) {
+ const _idx = process.argv.indexOf('--register');
+ const _installPath = process.argv[_idx + 1];
+ if (!_installPath) {
+ console.error('Usage: agent --register <install.json>');
+ process.exit(1);
+ }
+ require('./register')(_installPath);
+ return;
+}
+
 const mqtt = require('mqtt');
 const axios = require('axios');
 const fs = require('fs');
