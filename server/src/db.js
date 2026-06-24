@@ -37,7 +37,8 @@ const SCHEMA_SQL = `
  agent_token_hash TEXT UNIQUE NOT NULL,
  status TEXT DEFAULT 'offline',
  last_seen_at BIGINT,
- created_at BIGINT NOT NULL
+ created_at BIGINT NOT NULL,
+ client_id TEXT REFERENCES clients(id) ON DELETE SET NULL
  );
 
  CREATE TABLE IF NOT EXISTS printers (
@@ -83,6 +84,11 @@ const SCHEMA_SQL = `
 
  CREATE INDEX IF NOT EXISTS idx_cleanup_audit_deleted_at ON cleanup_audit(deleted_at DESC);
  CREATE INDEX IF NOT EXISTS idx_cleanup_audit_branch ON cleanup_audit(branch_id);
+
+ -- Partial UNIQUE: one client can't have two branches with the same name.
+ -- Partial (WHERE client_id IS NOT NULL) so legacy NULL-client branches are unaffected.
+ CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_client_name
+ ON branches(client_id, name) WHERE client_id IS NOT NULL;
 `;
 
 let initialized = false;
@@ -90,6 +96,18 @@ let initialized = false;
 async function initSchema() {
  if (initialized) return;
  await pool.query(SCHEMA_SQL);
+ // Migration: ADD COLUMN branches.client_id on existing DBs (CREATE TABLE IF NOT
+ // EXISTS does NOT add a missing column to an existing table). Wrapped in try/catch
+ // because pg-mem doesn't support `ADD COLUMN IF NOT EXISTS` — and on PG, if the
+ // column already exists (fresh install via CREATE TABLE), the ALTER is a no-op.
+ try {
+ await pool.query(`
+ ALTER TABLE branches
+ ADD COLUMN IF NOT EXISTS client_id TEXT REFERENCES clients(id) ON DELETE SET NULL
+ `);
+ } catch (e) {
+ if (!/already exists/i.test(e.message)) throw e;
+ }
  initialized = true;
  logger.info('Postgres schema initialized');
 }
@@ -142,10 +160,13 @@ const stmts = {
 
  // Branches
  insertBranch: buildStmt('insertBranch', `
- INSERT INTO branches (id, name, location, agent_token_hash, status, created_at)
- VALUES (@id, @name, @location, @agent_token_hash, 'offline', @created_at)
+ INSERT INTO branches (id, name, location, client_id, agent_token_hash, status, created_at)
+ VALUES (@id, @name, @location, @client_id, @agent_token_hash, 'offline', @created_at)
  `),
  getBranchById: buildStmt('getBranchById', `SELECT * FROM branches WHERE id = @id`),
+ getBranchByClientAndName: buildStmt('getBranchByClientAndName', `
+ SELECT * FROM branches WHERE client_id = @client_id AND name = @name
+ `),
  getBranchByTokenHash: buildStmt('getBranchByTokenHash', `SELECT * FROM branches WHERE agent_token_hash = @agent_token_hash`),
  listBranches: buildStmt('listBranches', `SELECT * FROM branches ORDER BY created_at DESC`),
  updateBranchToken: buildStmt('updateBranchToken', `

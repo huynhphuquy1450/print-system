@@ -150,4 +150,80 @@ describe('db.js (pg-mem integration)', () => {
  expect(rows[1].id).toBe('job_old');
  await pool.end();
  });
+
+ // ── branches.client_id + partial UNIQUE(idx_branches_client_name) ──
+
+ test('insertBranch with client_id persists + getBranchByClientAndName round-trip', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({
+ id: 'c1', name: 'Acme', secret_hash: 'h', is_active: 1, created_at: now,
+ });
+ await stmts.insertBranch.run({
+ id: 'br_001', name: 'Branch 1', location: 'HCM',
+ client_id: 'c1', agent_token_hash: 'tok1', created_at: now,
+ });
+ const row = await stmts.getBranchByClientAndName.get({ client_id: 'c1', name: 'Branch 1' });
+ expect(row).not.toBeNull();
+ expect(row.id).toBe('br_001');
+ expect(row.client_id).toBe('c1');
+ await pool.end();
+ });
+
+ test('partial UNIQUE(client_id, name) blocks duplicate for same client', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({
+ id: 'c1', name: 'Acme', secret_hash: 'h', is_active: 1, created_at: now,
+ });
+ await stmts.insertBranch.run({
+ id: 'br_001', name: 'Branch 1', location: null,
+ client_id: 'c1', agent_token_hash: 'tok1', created_at: now,
+ });
+ await expect(stmts.insertBranch.run({
+ id: 'br_002', name: 'Branch 1', location: null,
+ client_id: 'c1', agent_token_hash: 'tok2', created_at: now,
+ })).rejects.toMatchObject({ code: '23505' });
+ await pool.end();
+ });
+
+ test('partial UNIQUE allows same name across different clients', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({
+ id: 'c1', name: 'Acme', secret_hash: 'h', is_active: 1, created_at: now,
+ });
+ await stmts.insertClient.run({
+ id: 'c2', name: 'Beta', secret_hash: 'h', is_active: 1, created_at: now,
+ });
+ await stmts.insertBranch.run({
+ id: 'br_001', name: 'Branch 1', location: null,
+ client_id: 'c1', agent_token_hash: 'tok1', created_at: now,
+ });
+ // Same name, different client → must NOT violate the partial UNIQUE
+ await expect(stmts.insertBranch.run({
+ id: 'br_002', name: 'Branch 1', location: null,
+ client_id: 'c2', agent_token_hash: 'tok2', created_at: now,
+ })).resolves.toBeDefined();
+ await pool.end();
+ });
+
+ test('partial UNIQUE allows NULL client_id (legacy branches unaffected)', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ // Two branches with NULL client_id + same name → must succeed (partial WHERE)
+ await stmts.insertBranch.run({
+ id: 'br_legacy_1', name: 'Legacy', location: null,
+ client_id: null, agent_token_hash: 'tok1', created_at: now,
+ });
+ await expect(stmts.insertBranch.run({
+ id: 'br_legacy_2', name: 'Legacy', location: null,
+ client_id: null, agent_token_hash: 'tok2', created_at: now,
+ })).resolves.toBeDefined();
+ await pool.end();
+ });
 });
