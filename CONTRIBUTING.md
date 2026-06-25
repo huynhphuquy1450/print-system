@@ -41,8 +41,8 @@ Ví dụ: `feat(server): add per-client rate limit`
 
 ## Pull Request process
 
-1. Đảm bảo `npm test` pass (khi có test framework — xem ROADMAP.md Q3 2026)
-2. Đảm bảo `npm run lint` pass (khi có eslint)
+1. Đảm bảo `npm test` pass (jest — chạy `cd server && npm test`)
+2. Đảm bảo `npm run lint` pass (eslint)
 3. Mô tả thay đổi trong PR description (dùng PR template)
 4. Reference issue nếu có: `Fixes #123`
 5. Đợi review từ maintainer
@@ -80,13 +80,19 @@ Xem `server/README.md` và `agent/README.md` để biết chi tiết.
 
 ## Testing
 
-Hiện chưa có test framework (xem `ROADMAP.md` Q3 2026).
+Server dùng **jest** (+ `supertest` cho HTTP, `pg-mem` cho integration test với PostgreSQL in-process).
+Không cần DB hay MQTT thật để chạy test — `server/jest.setup.js` tiêm env giả.
 
-Khi đã có:
 ```bash
-cd server && npm test
-cd agent && npm test
+cd server && npm test              # toàn bộ test
+cd server && npx jest --coverage   # kèm báo cáo coverage (CI enforce threshold)
 ```
+
+Thêm test khi đóng góp:
+- Đặt test cạnh code: `src/<area>/__tests__/<name>.test.js`.
+- Unit test: hoist `jest.mock('../../db')` trước `require`. Integration test DB: dùng `pg-mem`
+  (xem `src/db/__tests__/db.pg.test.js`). Integration HTTP: dùng `supertest` (xem `src/api/__tests__/jobs.test.js`).
+- **Mỗi service mới trong `src/services/` phải kèm test** — coverage được enforce trên thư mục này, thiếu test sẽ làm CI đỏ.
 
 ## Report security issue
 
