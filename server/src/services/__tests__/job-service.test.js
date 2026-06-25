@@ -46,6 +46,7 @@ const {
  getJob,
  listPendingForBranch,
  listAllJobs,
+ createJobsBulk,
  updateJobStatus,
  getJobFileForAgent,
 } = require('../job-service');
@@ -395,6 +396,48 @@ describe('job-service', () => {
  });
  fs.existsSync.mockReturnValue(false);
  await expect(getJobFileForAgent('job_1', BRANCH)).rejects.toThrow(/PDF file missing/);
+ });
+ });
+
+ describe('createJobsBulk (HM7)', () => {
+ const file = (n) => ({ buffer: Buffer.from(`%PDF-1.4 ${n}`) });
+
+ test('tất cả hợp lệ → created đủ N, failed rỗng', async () => {
+ const items = [
+ { branch_id: BRANCH, metadata: { user_id: 'u1' } },
+ { branch_id: BRANCH, printer: 'P2', metadata: { user_id: 'u2' } },
+ ];
+ const out = await createJobsBulk({ items, files: [file(1), file(2)], clientId: 'c1' });
+ expect(out.created).toHaveLength(2);
+ expect(out.failed).toHaveLength(0);
+ expect(out.created[0]).toMatchObject({ index: 0, branch_id: BRANCH });
+ expect(out.created[0].job_id).toMatch(/^job_/);
+ });
+
+ test('item thiếu user_id → vào failed, item khác vẫn created (partial)', async () => {
+ const items = [
+ { branch_id: BRANCH, metadata: {} }, // thiếu user_id
+ { branch_id: BRANCH, metadata: { user_id: 'u2' } },
+ ];
+ const out = await createJobsBulk({ items, files: [file(1), file(2)], clientId: 'c1' });
+ expect(out.created).toHaveLength(1);
+ expect(out.failed).toHaveLength(1);
+ expect(out.failed[0]).toMatchObject({ index: 0 });
+ expect(out.failed[0].error).toMatch(/user_id/);
+ });
+
+ test('branch không tồn tại → item đó failed 404', async () => {
+ stmts.getBranchById.get
+ .mockResolvedValueOnce(BRANCH_ROW) // item 0 OK
+ .mockResolvedValueOnce(null); // item 1 branch not found
+ const items = [
+ { branch_id: BRANCH, metadata: { user_id: 'u1' } },
+ { branch_id: 'br_x', metadata: { user_id: 'u2' } },
+ ];
+ const out = await createJobsBulk({ items, files: [file(1), file(2)], clientId: 'c1' });
+ expect(out.created).toHaveLength(1);
+ expect(out.failed).toHaveLength(1);
+ expect(out.failed[0].error).toMatch(/not found/);
  });
  });
 });

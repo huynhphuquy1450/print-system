@@ -11,6 +11,7 @@
   "test:health": "node scripts/health-check.js",
   "migrate:sqlite-to-pg": "node scripts/migrate-sqlite-to-pg.js",
   "test": "jest",
+  "test:cov": "jest --coverage",
   "lint": "eslint . --ext .js",
   "lint:fix": "eslint . --ext .js --fix",
   "format": "prettier --write \"**/*.{js,json,md}\" --ignore-path .gitignore"
@@ -30,8 +31,10 @@
   ],
   "coverageThreshold": {
    "global": {
-    "lines": 30,
-    "statements": 30
+    "lines": 60,
+    "statements": 60,
+    "branches": 60,
+    "functions": 60
    }
   },
   "verbose": true

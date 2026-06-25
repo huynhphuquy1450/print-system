@@ -33,6 +33,11 @@ const config = {
  retentionDays: parseInt(optional('STORAGE_RETENTION_DAYS', '7'), 10),
  },
 
+ // Audit log retention (HM5): purge dòng audit_log cũ hơn N ngày (chạy cùng giờ cleanup).
+ audit: {
+ retentionDays: parseInt(optional('AUDIT_RETENTION_DAYS', '90'), 10),
+ },
+
  mqtt: {
  url: required('MQTT_URL'),
  username: required('MQTT_USER'),

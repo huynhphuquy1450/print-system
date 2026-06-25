@@ -25,6 +25,8 @@ const loginLimiter = rateLimit({
 router.post('/login', loginLimiter, async (req, res, next) => {
  try {
  const { client_id, client_secret } = req.body || {};
+ // Audit: ghi mọi lần đăng nhập (thành/bại phân biệt qua status_code)
+ res.locals.audit = { action: 'auth.login', resource_type: 'client', resource_id: client_id };
  if (!client_id || !client_secret) {
  return res.status(400).json({ error: 'client_id and client_secret are required' });
  }

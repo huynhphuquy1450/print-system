@@ -85,6 +85,43 @@ const SCHEMA_SQL = `
  CREATE INDEX IF NOT EXISTS idx_cleanup_audit_deleted_at ON cleanup_audit(deleted_at DESC);
  CREATE INDEX IF NOT EXISTS idx_cleanup_audit_branch ON cleanup_audit(branch_id);
 
+ -- Audit log chi tiết: ai làm gì, lúc nào, từ đâu (IP, user-agent), kết quả (status code).
+ -- Ghi cho mọi thao tác ghi (POST/PUT/PATCH/DELETE) + GET nhạy cảm (tải PDF). Cột action
+ -- NOT NULL — middleware luôn đặt giá trị (res.locals.audit.action hoặc fallback method+path).
+ CREATE TABLE IF NOT EXISTS audit_log (
+ id SERIAL PRIMARY KEY,
+ at BIGINT NOT NULL,
+ actor_type TEXT,
+ actor_id TEXT,
+ user_id TEXT,
+ action TEXT NOT NULL,
+ resource_type TEXT,
+ resource_id TEXT,
+ method TEXT,
+ path TEXT,
+ status_code INTEGER,
+ ip TEXT,
+ user_agent TEXT
+ );
+
+ CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at DESC);
+ CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id);
+ CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+
+ -- Webhook ERP (HM4): ERP đăng ký URL callback nhận sự kiện job đổi trạng thái.
+ -- secret dùng ký HMAC payload. events là CSV (hiện chỉ 'job.status').
+ CREATE TABLE IF NOT EXISTS webhooks (
+ id TEXT PRIMARY KEY,
+ client_id TEXT REFERENCES clients(id) ON DELETE CASCADE,
+ url TEXT NOT NULL,
+ secret TEXT NOT NULL,
+ events TEXT NOT NULL DEFAULT 'job.status',
+ is_active INTEGER DEFAULT 1,
+ created_at BIGINT NOT NULL
+ );
+
+ CREATE INDEX IF NOT EXISTS idx_webhooks_client ON webhooks(client_id);
+
  -- Partial UNIQUE: one client can't have two branches with the same name.
  -- Partial (WHERE client_id IS NOT NULL) so legacy NULL-client branches are unaffected.
  CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_client_name
@@ -207,6 +244,9 @@ const stmts = {
  markJobFailed: buildStmt('markJobFailed', `
  UPDATE jobs SET status = 'failed', failed_at = @failed_at, error = @error WHERE id = @id
  `),
+ requeueJob: buildStmt('requeueJob', `
+ UPDATE jobs SET status = 'sent', sent_at = @sent_at, error = NULL, retry_count = retry_count + 1 WHERE id = @id
+ `),
  incrementRetry: buildStmt('incrementRetry', `
  UPDATE jobs SET retry_count = retry_count + 1 WHERE id = @id
  `),
@@ -228,6 +268,29 @@ const stmts = {
  INSERT INTO cleanup_audit (job_id, file_path, branch_id, reason, deleted_at, size_bytes)
  VALUES (@job_id, @file_path, @branch_id, @reason, @deleted_at, @size_bytes)
  `),
+
+ // Webhooks (HM4)
+ insertWebhook: buildStmt('insertWebhook', `
+ INSERT INTO webhooks (id, client_id, url, secret, events, is_active, created_at)
+ VALUES (@id, @client_id, @url, @secret, @events, 1, @created_at)
+ `),
+ listWebhooksByClient: buildStmt('listWebhooksByClient', `
+ SELECT * FROM webhooks WHERE client_id = @client_id ORDER BY created_at DESC
+ `),
+ listActiveWebhooksByClient: buildStmt('listActiveWebhooksByClient', `
+ SELECT * FROM webhooks WHERE client_id = @client_id AND is_active = 1
+ `),
+ getWebhookById: buildStmt('getWebhookById', `SELECT * FROM webhooks WHERE id = @id`),
+ deleteWebhook: buildStmt('deleteWebhook', `DELETE FROM webhooks WHERE id = @id AND client_id = @client_id`),
+
+ // Audit log
+ insertAudit: buildStmt('insertAudit', `
+ INSERT INTO audit_log
+ (at, actor_type, actor_id, user_id, action, resource_type, resource_id, method, path, status_code, ip, user_agent)
+ VALUES
+ (@at, @actor_type, @actor_id, @user_id, @action, @resource_type, @resource_id, @method, @path, @status_code, @ip, @user_agent)
+ `),
+ deleteOldAuditLogs: buildStmt('deleteOldAuditLogs', `DELETE FROM audit_log WHERE at < @cutoff`),
 };
 
 // Build a tx-bound statement set. Same shape as `stmts` but each call uses the

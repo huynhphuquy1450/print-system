@@ -4,7 +4,17 @@ const config = require('../config');
 const logger = require('../logger');
 const { stmts } = require('../db');
 const mqttClient = require('../mqtt-client');
+const webhookService = require('../services/webhook-service');
 const fs = require('fs');
+
+// Báo ERP job chuyển 'failed' (HM4) — fire-and-forget, nuốt lỗi.
+function notifyFailed(job) {
+ let metadata = {};
+ try { metadata = JSON.parse(job.metadata || '{}'); } catch (e) {}
+ webhookService
+ .dispatch({ clientId: job.client_id, jobId: job.id, status: 'failed', branchId: job.branch_id, metadata })
+ .catch(() => {});
+}
 
 let interval = null;
 let running = false;
@@ -48,6 +58,7 @@ async function run() {
  error: `PDF file missing: ${e.message}`,
  id: job.id,
  });
+ notifyFailed(job);
  continue;
  }
 
@@ -75,6 +86,7 @@ async function run() {
  error: `Max retries reached: ${e.message}`,
  id: job.id,
  });
+ notifyFailed(job);
  logger.warn('Job failed after max retries', { job_id: job.id });
  }
  }

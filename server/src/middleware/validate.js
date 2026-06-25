@@ -51,4 +51,15 @@ function validate(schema) {
   };
 }
 
-module.exports = { validate };
+/**
+ * Kiểm tra metadata (đã JSON.parse) có user_id hợp lệ — bắt buộc cho audit log.
+ * Trả về chuỗi lỗi nếu thiếu/không hợp lệ, hoặc null nếu ok.
+ */
+function requireMetadataUserId(meta) {
+  if (!meta || typeof meta.user_id !== 'string' || meta.user_id.trim() === '') {
+    return 'metadata.user_id is required';
+  }
+  return null;
+}
+
+module.exports = { validate, requireMetadataUserId };

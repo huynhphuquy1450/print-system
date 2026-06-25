@@ -7,6 +7,7 @@ const mqttClient = require('./mqtt-client');
 const httpsServer = require('./https-server');
 const retryStale = require('./jobs/retry-stale');
 const cleanupFiles = require('./jobs/cleanup-files');
+const purgeAuditLog = require('./jobs/purge-audit-log');
 const backupDb = require('./jobs/backup-db');
 const { db, pool } = require('./db');
 
@@ -45,6 +46,7 @@ async function start() {
  // 4. Cron jobs
  retryStale.start();
  cleanupFiles.start();
+ purgeAuditLog.start();
  backupDb.start();
 
  logger.info('Print Service started successfully');
@@ -63,6 +65,7 @@ async function shutdown(signal) {
  // Stop cron
  retryStale.stop();
  cleanupFiles.stop();
+ purgeAuditLog.stop();
  backupDb.stop();
 
  // Close HTTPS first (so any in-flight agent requests get a clean error

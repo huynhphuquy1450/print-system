@@ -131,6 +131,7 @@ jobs:
           node-version: '18'
       - name: Install dependencies (with dev deps for jest)
         run: npm ci
-      - name: Run jest
-        # Tests use jest.setup.js to inject dummy env vars (no real secrets needed)
-        run: npm test
+      - name: Run jest with coverage
+        # Tests use jest.setup.js to inject dummy env vars (no real secrets needed).
+        # --coverage enforces coverageThreshold (services ≥ 60%) — build fails if below.
+        run: npm run test:cov

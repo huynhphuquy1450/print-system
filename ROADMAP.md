@@ -1,14 +1,14 @@
 # Roadmap
 
-> Last updated: 2026-06-22. Cập nhật mỗi quý hoặc khi có thay đổi lớn.
+> Last updated: 2026-06-25. Cập nhật mỗi quý hoặc khi có thay đổi lớn.
 
 Dự án Print System đang ở giai đoạn 1.5 (Team handoff). Hướng phát triển 12 tháng tới:
 
-## Q3 2026 (Jul-Sep) — STABILITY
-- [ ] Setup test framework (jest) — hiện chưa có
-- [ ] ESLint + Prettier — chuẩn hóa style
-- [ ] Bật GitHub Actions thật (lint + test trên mỗi PR)
-- [ ] Fix 7 known issues trong `server/HANDOVER.md` §10.1
+## Q3 2026 (Jul-Sep) — STABILITY ✅ HOÀN THÀNH SỚM
+- [x] Setup test framework (jest) — 14 test files, 107 tests pass
+- [x] ESLint + Prettier — chuẩn hóa style
+- [x] Bật GitHub Actions thật (lint + test trên mỗi PR)
+- [x] Fix 8 known issues trong `server/HANDOVER.md` §10.1 (tất cả đã fix, xem §10.1)
 - [ ] Onboard 2 dev đầu tiên
 - [ ] Viết unit test cho `server/src/services/`, target 60% coverage
 
@@ -19,7 +19,7 @@ Dự án Print System đang ở giai đoạn 1.5 (Team handoff). Hướng phát 
 - [ ] Bulk tạo 25 branch mới (br_006..br_030) qua `POST /api/admin/agents`
 - [ ] Monitoring: Prometheus + Grafana dashboard
 - [ ] Alert: Telegram/PagerDuty khi service down
-- [ ] Rate limit per-client (chống HQ spam)
+- [x] Rate limit per-client (chống HQ spam) — đã có `middleware/rate-limit-client.js`
 
 ## Q1 2027 (Jan-Mar) — UX & INTEGRATION
 - [ ] Web UI cho HQ (xem job history, retry manual, filter theo branch/status)

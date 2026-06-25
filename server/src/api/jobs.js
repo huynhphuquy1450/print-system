@@ -6,6 +6,7 @@ const jobService = require('../services/job-service');
 const { verifyClient, verifyAgent } = require('../middleware/auth');
 const { clientRateLimit } = require('../middleware/rate-limit-client');
 const { pdfUpload } = require('../middleware/upload');
+const { requireMetadataUserId } = require('../middleware/validate');
 
 /**
  * POST /api/print-jobs (Client JWT)
@@ -30,29 +31,35 @@ router.post(
  if (req.body.printer !== undefined && typeof req.body.printer !== 'string') {
  errors.push("Field 'printer' must be a string");
  }
+ let metadata;
  if (req.body.metadata !== undefined) {
  if (typeof req.body.metadata !== 'string') {
  errors.push("Field 'metadata' must be a JSON string");
  } else {
- try { JSON.parse(req.body.metadata); }
+ try { metadata = JSON.parse(req.body.metadata); }
  catch { errors.push("Field 'metadata' must be valid JSON"); }
  }
  }
+ // user_id bắt buộc cho audit log (truy vết ai in cái gì)
+ const metaErr = requireMetadataUserId(metadata);
+ if (metaErr) errors.push(metaErr);
  if (!req.file) errors.push("File field 'pdf' is required");
  if (errors.length) return res.status(400).json({ error: 'Validation failed', details: errors });
-
- let metadata = {};
- if (req.body.metadata) {
- try { metadata = JSON.parse(req.body.metadata); } catch (e) { metadata = {}; }
- }
 
  const result = await jobService.createJob({
  branchId: req.body.branch_id,
  printer: req.body.printer || null,
  pdfBuffer: req.file.buffer,
- metadata,
+ metadata: metadata || {},
  clientId: req.client.id,
  });
+ // Audit: ai (user_id) in job nào — job_id chỉ có sau khi createJob chạy
+ res.locals.audit = {
+ action: 'job.create',
+ resource_type: 'job',
+ resource_id: result.job_id,
+ user_id: metadata && metadata.user_id,
+ };
  res.status(201).json(result);
  } catch (e) { next(e); }
  }
@@ -116,6 +123,8 @@ router.get('/:id/file', verifyAgent, async (req, res, next) => {
  req.params.id,
  req.agent.branchId
  );
+ // Audit: GET nhạy cảm — agent nào tải file job nào
+ res.locals.audit = { action: 'job.file_download', resource_type: 'job', resource_id: req.params.id };
  res.set({
  'Content-Type': 'application/pdf',
  'Content-Length': fileSize,
