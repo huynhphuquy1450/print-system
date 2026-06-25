@@ -7,12 +7,8 @@ const logger = require('./logger');
 const { errorHandler } = require('./middleware/error');
 
 const healthRouter = require('./api/health');
-const authRouter = require('./api/auth');
-const jobsRouter = require('./api/jobs');
-const branchesRouter = require('./api/branches');
-const printersRouter = require('./api/printers');
-const adminRouter = require('./api/admin');
-const setupRouter = require('./api/setup');
+const v1Router = require('./api/v1');
+const v2Router = require('./api/v2');
 
 const app = express();
 
@@ -44,12 +40,11 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/health', healthRouter);
-app.use('/api/auth', authRouter);
-app.use('/api/print-jobs', jobsRouter);
-app.use('/api/branches', branchesRouter);
-app.use('/api/printers', printersRouter);
-app.use('/api/admin', adminRouter);
-app.use('/api/setup', setupRouter);
+// API versioning: feature mới đặt dưới /api/v2. Endpoint hiện tại phục vụ qua
+// /api/v1/* và alias /api/* (back-compat client cũ — giữ tới hết 2027 rồi deprecate).
+app.use('/api/v1', v1Router);
+app.use('/api/v2', v2Router);
+app.use('/api', v1Router); // alias back-compat — mount cuối, sau các prefix có version
 
 // 404
 app.use((req, res) => {
