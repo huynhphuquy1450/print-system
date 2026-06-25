@@ -60,6 +60,7 @@ router.post(
  throw e;
  }
 
+ res.locals.audit = { action: 'branch.create', resource_type: 'branch', resource_id: id };
  res.status(201).json({
  id,
  name,
@@ -91,6 +92,9 @@ router.post('/:id/regen-token', verifyClient, async (req, res, next) => {
  try {
  const branch = await stmts.getBranchById.get(req.params.id);
  if (!branch) return res.status(404).json({ error: 'Branch not found' });
+
+ // Audit: rotate agent token là sự kiện bảo mật — ghi rõ branch nào
+ res.locals.audit = { action: 'branch.regen_token', resource_type: 'branch', resource_id: branch.id };
 
  const newToken = generateAgentToken();
  await stmts.updateBranchToken.run({

@@ -53,6 +53,13 @@ router.post(
  metadata: metadata || {},
  clientId: req.client.id,
  });
+ // Audit: ai (user_id) in job nào — job_id chỉ có sau khi createJob chạy
+ res.locals.audit = {
+ action: 'job.create',
+ resource_type: 'job',
+ resource_id: result.job_id,
+ user_id: metadata && metadata.user_id,
+ };
  res.status(201).json(result);
  } catch (e) { next(e); }
  }
@@ -116,6 +123,8 @@ router.get('/:id/file', verifyAgent, async (req, res, next) => {
  req.params.id,
  req.agent.branchId
  );
+ // Audit: GET nhạy cảm — agent nào tải file job nào
+ res.locals.audit = { action: 'job.file_download', resource_type: 'job', resource_id: req.params.id };
  res.set({
  'Content-Type': 'application/pdf',
  'Content-Length': fileSize,

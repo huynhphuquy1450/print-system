@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const logger = require('./logger');
 const { errorHandler } = require('./middleware/error');
+const { auditLog } = require('./middleware/audit-log');
 
 const healthRouter = require('./api/health');
 const v1Router = require('./api/v1');
@@ -37,6 +38,10 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// Audit log chi tiết (HM5): ghi mọi thao tác ghi + GET nhạy cảm. Đặt sau request-log,
+// trước routes — listener res.on('finish') đọc req.client/req.agent/res.locals.audit lúc kết thúc.
+app.use(auditLog);
 
 // Routes
 app.use('/health', healthRouter);

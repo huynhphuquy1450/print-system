@@ -226,4 +226,23 @@ describe('db.js (pg-mem integration)', () => {
  })).resolves.toBeDefined();
  await pool.end();
  });
+
+ test('insertAudit ghi + đọc lại được dòng audit_log (HM5)', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertAudit.run({
+ at: now, actor_type: 'client', actor_id: 'cl_1', user_id: 'u_7',
+ action: 'job.create', resource_type: 'job', resource_id: 'job_x',
+ method: 'POST', path: '/api/print-jobs', status_code: 201,
+ ip: '10.0.0.1', user_agent: 'jest',
+ });
+ const r = await db.query('SELECT * FROM audit_log WHERE actor_id = $1', ['cl_1']);
+ expect(r.rows).toHaveLength(1);
+ expect(r.rows[0].action).toBe('job.create');
+ expect(r.rows[0].user_id).toBe('u_7');
+ expect(r.rows[0].status_code).toBe(201);
+ expect(r.rows[0].at).toBe(now); // BIGINT → number
+ await pool.end();
+ });
 });
