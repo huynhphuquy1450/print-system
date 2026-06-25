@@ -1,5 +1,7 @@
 'use strict';
 
+const path = require('path');
+
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
 function required(name) {
@@ -75,6 +77,17 @@ const config = {
  server: {
  // Public URL of this server (used in install JSON, defaults to http://localhost:$PORT)
  publicUrl: optional('SERVER_PUBLIC_URL', `http://localhost:${optional('PORT', '3000')}`),
+ },
+
+ // HTTPS — for agents accessing the API over the public internet.
+ // HTTP (port) is kept for HQ LAN access. When HTTPS is enabled, an additional
+ // https.createServer binds to https.port using cert/key from disk.
+ // Certs are loaded from Step-CA (see scripts/setup-step-ca.sh).
+ https: {
+ enabled: optional('HTTPS_ENABLED', 'false') === 'true',
+ port: parseInt(optional('HTTPS_PORT', '443'), 10),
+ certFile: optional('HTTPS_CERT_FILE', path.join(__dirname, '..', 'certs', 'server.crt')),
+ keyFile: optional('HTTPS_KEY_FILE', path.join(__dirname, '..', 'certs', 'server.key')),
  },
 
  // Topic prefix helper

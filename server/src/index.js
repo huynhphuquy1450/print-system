@@ -4,6 +4,7 @@ const app = require('./app');
 const config = require('./config');
 const logger = require('./logger');
 const mqttClient = require('./mqtt-client');
+const httpsServer = require('./https-server');
 const retryStale = require('./jobs/retry-stale');
 const cleanupFiles = require('./jobs/cleanup-files');
 const backupDb = require('./jobs/backup-db');
@@ -18,6 +19,8 @@ async function start() {
  env: config.env,
  port: config.port,
  mqtt_url: config.mqtt.url,
+ https_enabled: config.https.enabled,
+ https_port: config.https.port,
  });
 
  // 0. Initialize Postgres schema (idempotent CREATE TABLE IF NOT EXISTS).
@@ -27,7 +30,7 @@ async function start() {
  // 1. MQTT
  mqttClient.connect();
 
- // 2. HTTP
+ // 2. HTTP (always — for HQ LAN access)
  server = app.listen(config.port, () => {
  logger.info(`HTTP server listening on port ${config.port}`);
  });
@@ -36,7 +39,10 @@ async function start() {
  logger.error('HTTP server error', { err: err.message });
  });
 
- // 3. Cron jobs
+ // 3. HTTPS (for internet agents). No-op if HTTPS_ENABLED=false or certs missing.
+ httpsServer.startHttpsServer(app, config.https);
+
+ // 4. Cron jobs
  retryStale.start();
  cleanupFiles.start();
  backupDb.start();
@@ -58,6 +64,10 @@ async function shutdown(signal) {
  retryStale.stop();
  cleanupFiles.stop();
  backupDb.stop();
+
+ // Close HTTPS first (so any in-flight agent requests get a clean error
+ // rather than a connection drop). Then HTTP.
+ await httpsServer.closeHttpsServer();
 
  // Close HTTP
  if (server) {
