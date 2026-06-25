@@ -1,0 +1,51 @@
+.sidebar {
+  width: var(--sidebar-width);
+  min-height: 100vh;
+  background: var(--color-card);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  height: var(--topbar-height);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--color-fg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3) var(--space-2);
+  gap: var(--space-1);
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  color: var(--color-muted-fg);
+  text-decoration: none;
+  font-size: var(--font-size-base);
+  transition: background 150ms, color 150ms;
+}
+
+.link:hover {
+  background: var(--color-muted);
+  color: var(--color-fg);
+}
+
+.active {
+  background: var(--color-muted);
+  color: var(--color-primary);
+  font-weight: 600;
+}

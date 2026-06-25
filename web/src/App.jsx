@@ -1,0 +1,37 @@
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { useAuth, ProtectedRoute } from './auth/AuthContext.jsx';
+import Layout from './components/Layout.jsx';
+import LoginPage from './pages/LoginPage.jsx';
+import JobsPage from './pages/JobsPage.jsx';
+import UploadPage from './pages/UploadPage.jsx';
+import AuditPage from './pages/AuditPage.jsx';
+import WebhooksPage from './pages/WebhooksPage.jsx';
+
+function RootRedirect() {
+  const { isAuthed } = useAuth();
+  return <Navigate to={isAuthed ? '/jobs' : '/login'} replace />;
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+
+      <Route
+        element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/jobs" replace />} />
+        <Route path="/jobs"     element={<JobsPage />} />
+        <Route path="/upload"   element={<UploadPage />} />
+        <Route path="/audit"    element={<AuditPage />} />
+        <Route path="/webhooks" element={<WebhooksPage />} />
+      </Route>
+
+      <Route path="*" element={<RootRedirect />} />
+    </Routes>
+  );
+}

@@ -1,0 +1,28 @@
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-muted-fg);
+  border-top: 1px solid var(--color-border);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.limitLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-muted-fg);
+}
+
+.limitSelect {
+  width: auto;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+}

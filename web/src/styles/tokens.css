@@ -1,0 +1,45 @@
+:root {
+  /* Màu sắc */
+  --color-primary: #475569;
+  --color-primary-hover: #334155;
+  --color-on-primary: #ffffff;
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-bg: #f8fafc;
+  --color-card: #ffffff;
+  --color-fg: #1e293b;
+  --color-muted: #eaeff3;
+  --color-muted-fg: #64748b;
+  --color-border: #e2e8f0;
+  --color-destructive: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Border radius */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --topbar-height: 56px;
+  --row-height: 36px;
+
+  /* Shadow */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+
+  /* Font */
+  --font-ui: 'Fira Sans', system-ui, sans-serif;
+  --font-mono: 'Fira Code', monospace;
+  --font-size-base: 14px;
+  --font-size-sm: 12px;
+}

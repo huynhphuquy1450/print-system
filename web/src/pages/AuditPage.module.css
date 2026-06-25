@@ -1,0 +1,30 @@
+/* Layout chính của trang Audit */
+.page {
+  padding: var(--space-4) var(--space-5);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Hàng tiêu đề: tên trang bên trái, tổng số bên phải */
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.header h1 {
+  margin: 0;
+}
+
+.total {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted-fg);
+}
+
+/* Spinner căn giữa khi đang tải lần đầu */
+.spinnerWrap {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-5) 0;
+}
