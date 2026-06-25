@@ -1,0 +1,56 @@
+# mosquitto.conf.example — Step-CA TLS configuration
+#
+# Drop this file in /etc/mosquitto/conf.d/step-ca.conf (the default
+# mosquitto install includes /etc/mosquitto/mosquitto.conf which
+# auto-loads everything in conf.d/).
+#
+# PREREQUISITES:
+#   - Run scripts/setup-step-ca.sh to provision server.crt/server.key
+#     into /etc/mosquitto/certs/
+#   - Copy root_ca.crt from /opt/print-service/certs/ to a path the
+#     mosquitto user can read. The default is /etc/step-ca/certs/root_ca.crt
+#     — create that dir with: sudo mkdir -p /etc/step-ca/certs && \
+#     sudo cp /opt/print-service/certs/root_ca.crt /etc/step-ca/certs/ && \
+#     sudo chmod 644 /etc/step-ca/certs/root_ca.crt
+#   - Existing /etc/mosquitto/passwd and /etc/mosquitto/acl are kept as-is
+#     — this config references them for MQTT auth.
+#
+# Why this config:
+#   - listener 8883 + tls_version 1.2: agents connect over MQTTS
+#   - cafile: clients present a cert signed by this CA (optional — we
+#     use password auth, not client certs)
+#   - certfile/keyfile: server identity (what clients verify via cafile)
+#   - require_certificate false: agents authenticate via username/password
+#     instead of client certs. Simpler ops; mutual TLS is overkill for
+#     this use case.
+#   - allow_anonymous false: forces username/password (password_file)
+
+listener 8883
+protocol mqtt
+
+# TLS 1.2 minimum (TLS 1.3 not yet supported by mosquitto as of 1.6.x)
+tls_version tlsv1.2
+
+# Server identity (issued by Step-CA, see scripts/setup-step-ca.sh)
+certfile /etc/mosquitto/certs/server.crt
+keyfile /etc/mosquitto/certs/server.key
+
+# CA that issued the server cert. Agents also use this root CA to
+# verify the server. (Place root_ca.crt at this path manually — see
+# PREREQUISITES above.)
+cafile /etc/step-ca/certs/root_ca.crt
+
+# Auth: username/password (existing setup, unchanged)
+allow_anonymous false
+password_file /etc/mosquitto/passwd
+acl_file /etc/mosquitto/acl
+
+# Logging — keep default; useful for diagnosing TLS handshake failures.
+# When an agent fails to connect with "certificate verify failed", the
+# mosquitto log will show the exact chain mismatch.
+log_type error
+log_type warning
+log_type notice
+log_type information
+connection_messages true
+log_timestamp true
