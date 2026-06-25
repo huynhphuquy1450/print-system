@@ -270,7 +270,35 @@ Endpoint public dùng để chi nhánh IT tự đăng ký branch (thay vì HQ ph
 
 **Audit log** mỗi registration (grep-friendly): `logger.info('Branch self-registered', { branch_id, client_id, client_name, branch_name, ip })`.
 
-**HTTPS**: production phải có HTTPS (warn-only ở MVP — chỉ log warning, không block). Khi deploy với nginx + Let's Encrypt (§10.1 #4), warning sẽ tắt.
+**HTTPS**: production phải có HTTPS (warn-only ở MVP — chỉ log warning, không block). Khi deploy với Step-CA + Express dual-listener (§10.1 #4), warning sẽ tắt.
+
+#### 4.4.1. HTTPS for internet agents (Step-CA)
+
+Từ 2026-06-25, Express app bind cả 2 listener trong cùng process:
+
+| Listener | Port | Dùng cho | Mã hóa |
+|---|---|---|---|
+| `http.createServer(app).listen(PORT)` | 3000 | HQ LAN clients | Không (LAN trusted) |
+| `https.createServer(app, {cert, key}).listen(HTTPS_PORT)` | 443 | Internet agents (30 chi nhánh) | TLS 1.2+ (Step-CA signed) |
+
+Cả hai cùng chia sẻ `app` instance — middleware, route, error handling đồng nhất. HTTPS chỉ là **transport-layer wrapper**; không ảnh hưởng auth (vẫn dùng `verifyAgent` middleware như HTTP).
+
+**Cert lifecycle** (xem §10.4 cho full rollout):
+
+1. Init PKI 1 lần: `sudo bash scripts/setup-step-ca.sh` → tạo root CA + cấp cert cho Mosquitto + Express.
+2. Auto-renew mỗi ngày 03:00: `scripts/renew-step-certs.sh` (cron). Mosquitto `reload` (giữ existing connections); Express tự pick up cert mới qua `fs.watch` trong `https-server.js`.
+3. Agent trust: install `root_ca.crt` (~5KB) vào Windows "Trusted Root Certification Authorities" — xem `agent/CA_INSTALL.md`.
+
+**Env vars** (`server/.env.example`):
+- `HTTPS_ENABLED=false` (dev) / `true` (production)
+- `HTTPS_PORT=443`
+- `HTTPS_CERT_FILE=./certs/server.crt`
+- `HTTPS_KEY_FILE=./certs/server.key`
+
+**Out of scope** (sẽ làm khi mua domain):
+- nginx reverse proxy (1 server only, không cần)
+- HTTP→HTTPS redirect cho HQ (LAN HTTP OK)
+- Let's Encrypt (cần public domain)
 
 Headers: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset` (`standardHeaders: 'draft-7'`).
 
@@ -653,8 +681,8 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 |---|---|---|---|
 | 1 | ~~PDF base64 trong JSON → request lớn, tốn RAM~~ | ~~Memory peak ~50MB/job~~ | ✅ **Đã fix**: `POST /api/print-jobs` giờ nhận `multipart/form-data` với file `pdf` binary (multer memoryStorage, 50 MB cap, application/pdf filter). `express.json` giảm xuống 1 KB (chỉ đủ cho các endpoint metadata). Agent nhận metadata-only MQTT payload (`{job_id, printer, metadata, version: 2}`) và luôn tải PDF qua `GET /api/print-jobs/:id/file` — 1 code path duy nhất cho cả real-time lẫn reconnect. **BREAKING CHANGE** cho HQ client — xem §4.3 và commit body. |
 | 2 | ~~SQLite single-file → không scale > 100 jobs/phút~~ | ~~DB lock khi concurrent~~ | ✅ **Đã fix**: server đã chuyển sang PostgreSQL (`pg` driver, `pg-mem` cho in-process integration tests). Schema giữ nguyên (BIGINT epoch timestamps, SERIAL PK trên `cleanup_audit`, FK constraints preserved). Async/await trên toàn bộ service + API + middleware + cron. Connection pooling (Pool max=10). Transaction wrapper `db.transaction(fn)` thay cho `better-sqlite3` sync. Backup chuyển sang `pg_dump`. Migration one-shot: `server/scripts/migrate-sqlite-to-pg.js`. Xem §6 deployment + §11 notes. |
-| 3 | Cert self-signed → client phải `--cafile` hoặc `rejectUnauthorized:false` | Dev friction | Sẽ mua domain + Let's Encrypt (GĐ2) |
-| 4 | Không có HTTPS cho API (chỉ HTTP) | Insecure trên internet | OK vì VPN hoặc local; cần nginx reverse proxy + certbot khi public |
+| 3 | ~~Cert self-signed → client phải `--cafile` hoặc `rejectUnauthorized:false`~~ | ~~Dev friction~~ | ✅ **Đã fix**: dùng **Step-CA** (smallstep) làm internal PKI — chạy ngay trên print-service box, init 1 lần qua `scripts/setup-step-ca.sh`. Cấp cert cho cả Mosquitto (`/etc/mosquitto/certs/server.crt`) lẫn Express HTTPS (`/opt/print-service/certs/server.crt`). Cert 90-day validity, auto-renew cron mỗi ngày 03:00 (`scripts/renew-step-certs.sh`). Root CA (`root_ca.crt`, ~5KB) distribute cho pilot branches qua kênh an toàn — install vào Windows "Trusted Root Certification Authorities". Xem §10.4 rollout checklist. |
+| 4 | ~~Không có HTTPS cho API (chỉ HTTP)~~ | ~~Insecure trên internet~~ | ✅ **Đã fix**: Express app giờ bind cả HTTP (PORT=3000, cho HQ LAN) lẫn HTTPS (HTTPS_PORT=443, cho internet agents) trong cùng 1 process. Module `server/src/https-server.js` wrap `https.createServer` với cert hot-reload qua `fs.watch` (renewal không cần restart app). Opt-in qua `HTTPS_ENABLED=true` (default `false` ở dev/CI). Khi deploy production: chạy `setup-step-ca.sh` + `ufw-open-https.sh` + set `HTTPS_ENABLED=true` trong `.env`. Xem §4.4 cho chi tiết dual-listener. |
 | 5 | ~~Không có rate-limit per-client (chỉ per-IP login)~~ | ~~HQ spam được~~ | ✅ **Đã fix**: middleware `clientRateLimit` (`server/src/middleware/rate-limit-client.js`), key theo `req.client.id`, default `CLIENT_WRITE_RATE_PER_MIN=30` (env). Áp dụng cho `POST /api/print-jobs`. Nếu scale horizontal → đổi sang Redis store. |
 | 6 | Không có audit log ai in cái gì | Đã có guidance cho HQ (xem §4.8) | HQ cần truyền `metadata.user_id` khi POST job |
 | 7 | ~~Cron `cleanup-files` xóa PDF > 7 ngày — không audit~~ | ~~Mất data nếu cần reprint~~ | ✅ **Đã fix**: bảng `cleanup_audit` (`server/src/db.js`) ghi mỗi lần xóa (job_id, file_path, branch_id, reason, deleted_at, size_bytes) — `server/src/services/cleanup-audit.js` được gọi trong `db.transaction()` với `deleteJobById`, đảm bảo atomic (audit fail → delete roll back). Truy vết qua `SELECT * FROM cleanup_audit WHERE deleted_at > ?`. Schema + retention policy xem §10.3. |
@@ -716,7 +744,114 @@ SELECT job_id, file_path, reason, deleted_at, size_bytes
  LIMIT 10;
 ```
 
+### 10.4. Step-CA + HTTPS rollout checklist (mới, §10.1 #3 + #4 fix)
+
+**Mục tiêu**: bảo mật kênh server↔agent (internet traffic) bằng Step-CA internal PKI. Pilot với 1-3 chi nhánh trước khi rollout toàn bộ 30.
+
+#### Phase A — Server-side setup (chạy 1 lần, root)
+
+```bash
+# 1. Cài step-ca + step-cli (nếu chưa có)
+apt install -y step-cli step-ca      # Debian/Ubuntu
+
+# 2. Init PKI + provision certs + install renewal cron
+cd /opt/print-system-github
+sudo bash server/scripts/setup-step-ca.sh
+# → nhập CA password + provisioner password khi được hỏi
+# → output: mosquitto cert ở /etc/mosquitto/certs/, express cert ở
+#   /opt/print-service/certs/, root CA ở cùng chỗ.
+
+# 3. Mở firewall
+sudo bash server/scripts/ufw-open-https.sh
+
+# 4. Update Mosquitto config
+sudo cp server/src/mosquitto/mosquitto.conf.example /etc/mosquitto/conf.d/step-ca.conf
+sudo mkdir -p /etc/step-ca/certs
+sudo cp /opt/print-service/certs/root_ca.crt /etc/step-ca/certs/
+sudo chown mosquitto:mosquitto /etc/mosquitto/certs/server.{crt,key}
+sudo systemctl restart mosquitto
+```
+
+#### Phase B — Server runtime config
+
+Sửa `/opt/print-service/.env`:
+```bash
+HTTPS_ENABLED=true
+HTTPS_PORT=443
+HTTPS_CERT_FILE=/opt/print-service/certs/server.crt
+HTTPS_KEY_FILE=/opt/print-service/certs/server.key
+MQTT_CA_FILE=/etc/mosquitto/certs/server.crt
+```
+
+Restart: `pm2 restart print-service`.
+
+#### Phase C — Verification (chạy từ máy local hoặc từ server)
+
+```bash
+# HQ LAN HTTP — không thay đổi
+curl http://160.250.133.192:3000/api/health
+
+# HTTPS cho agents — verify cert chain
+curl --cacert /opt/print-service/certs/root_ca.crt \
+  https://160.250.133.192:443/api/health
+
+# HTTPS download PDF (test job ID bất kỳ trong DB)
+curl --cacert /opt/print-service/certs/root_ca.crt \
+  https://160.250.133.192:443/api/print-jobs/<job-id>/file \
+  -o /tmp/test.pdf
+
+# MQTT TLS — verify cert chain
+mosquitto_pub -h 160.250.133.192 -p 8883 \
+  -t test/connectivity -m "ping" \
+  --cafile /etc/step-ca/certs/root_ca.crt \
+  -u printservice -P '<mqtt_pass>'
+# → message delivered, no warning
+```
+
+#### Phase D — Pilot rollout (1-3 chi nhánh)
+
+1. **Distribute root CA** cho branch IT:
+   - File: `/opt/print-service/certs/root_ca.crt` (~5KB)
+   - Kênh: encrypted email (PGP/SMIME), Bitwarden Send, hoặc USB nội bộ.
+   - **KHÔNG** đăng lên public share / commit vào git.
+
+2. **Branch IT cài theo `agent/CA_INSTALL.md`**:
+   - GUI double-click → Install Certificate → Local Machine → Trusted Root.
+   - Verify: `certlm.msc` → Trusted Root → "Print System Internal CA" xuất hiện.
+
+3. **Branch IT update `.env`**:
+   ```bash
+   API_URL=https://160.250.133.192:443           # từ http://...:3000
+   MQTT_CA_FILE=C:\print-system\root_ca.crt      # từ .../ca.crt
+   # Bỏ mọi dòng MQTT_REJECT_UNAUTHORIZED=false nếu có
+   ```
+
+4. **Branch IT chạy agent**: `npm start` — phải connect MQTT + poll HTTPS không có warning.
+
+#### Phase E — Cert renewal (tự động, hàng ngày)
+
+Cron `0 3 * * * renew-step-certs.sh` chạy hàng ngày 03:00 sáng:
+- Renew cert Mosquitto → `systemctl reload mosquitto` (graceful — connections keep TLS).
+- Renew cert Express → `fs.watch` trong `https-server.js` tự pick up → không cần restart app.
+- Log: `/var/log/step-renewal.log` — grep "ERROR" để check mỗi tuần.
+
+#### Phase F — Rollout rộng (sau pilot 1 tuần OK)
+
+Lặp lại Phase D cho 27 chi nhánh còn lại. Khi tất cả 30 OK → close issue §10.1 #3 #4 vĩnh viễn.
+
+#### Known issues / nếu gặp sự cố
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `UNABLE_TO_VERIFY_LEAF_SIGNATURE` từ agent | Agent chưa cài root CA, hoặc cài sai store | Re-do Phase D step 2 |
+| `EADDRINUSE` khi restart Express | Port 443 đã bị chiếm | `ss -tlnp \| grep :443` → kill process hoặc đổi HTTPS_PORT |
+| Cert renewal thất bại với "invalid password" | Provisioner password file thiếu/sai | Write password to `/root/.step/provisioner_password`, mode 600 |
+| Mosquitto vẫn dùng self-signed cert | Chưa restart, hoặc config mới bị override | `systemctl cat mosquitto` check `ExecStart` / `EnvironmentFile` — Step-CA conf ở `conf.d/` không bị ghi đè |
+| Agents không connect được sau firewall mở | Cloud security group (AWS/GCP) vẫn block | Mở thêm ở cloud console — ufw chỉ là in-host firewall |
+
 ---
+
+
 
 ## 11. ROADMAP
 
