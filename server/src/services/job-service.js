@@ -8,6 +8,7 @@ const logger = require('../logger');
 const { db, stmts } = require('../db');
 const mqttClient = require('../mqtt-client');
 const { validatePdf } = require('./pdf-validator');
+const webhookService = require('./webhook-service');
 const { HttpError } = require('../errors');
 
 /**
@@ -192,6 +193,16 @@ async function updateJobStatus(jobId, branchId, status, errorMessage) {
  last_seen_at: Date.now(),
  id: branchId,
  });
+ // Webhook ERP (HM4): báo ERP job đổi trạng thái — fire-and-forget, không chặn agent callback
+ webhookService
+ .dispatch({
+ clientId: job.client_id,
+ jobId,
+ status,
+ branchId,
+ metadata: parseMetadata({ metadata: job.metadata }).metadata || {},
+ })
+ .catch(() => {});
  return { ok: true };
 }
 

@@ -108,6 +108,20 @@ const SCHEMA_SQL = `
  CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id);
  CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
 
+ -- Webhook ERP (HM4): ERP đăng ký URL callback nhận sự kiện job đổi trạng thái.
+ -- secret dùng ký HMAC payload. events là CSV (hiện chỉ 'job.status').
+ CREATE TABLE IF NOT EXISTS webhooks (
+ id TEXT PRIMARY KEY,
+ client_id TEXT REFERENCES clients(id) ON DELETE CASCADE,
+ url TEXT NOT NULL,
+ secret TEXT NOT NULL,
+ events TEXT NOT NULL DEFAULT 'job.status',
+ is_active INTEGER DEFAULT 1,
+ created_at BIGINT NOT NULL
+ );
+
+ CREATE INDEX IF NOT EXISTS idx_webhooks_client ON webhooks(client_id);
+
  -- Partial UNIQUE: one client can't have two branches with the same name.
  -- Partial (WHERE client_id IS NOT NULL) so legacy NULL-client branches are unaffected.
  CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_client_name
@@ -254,6 +268,20 @@ const stmts = {
  INSERT INTO cleanup_audit (job_id, file_path, branch_id, reason, deleted_at, size_bytes)
  VALUES (@job_id, @file_path, @branch_id, @reason, @deleted_at, @size_bytes)
  `),
+
+ // Webhooks (HM4)
+ insertWebhook: buildStmt('insertWebhook', `
+ INSERT INTO webhooks (id, client_id, url, secret, events, is_active, created_at)
+ VALUES (@id, @client_id, @url, @secret, @events, 1, @created_at)
+ `),
+ listWebhooksByClient: buildStmt('listWebhooksByClient', `
+ SELECT * FROM webhooks WHERE client_id = @client_id ORDER BY created_at DESC
+ `),
+ listActiveWebhooksByClient: buildStmt('listActiveWebhooksByClient', `
+ SELECT * FROM webhooks WHERE client_id = @client_id AND is_active = 1
+ `),
+ getWebhookById: buildStmt('getWebhookById', `SELECT * FROM webhooks WHERE id = @id`),
+ deleteWebhook: buildStmt('deleteWebhook', `DELETE FROM webhooks WHERE id = @id AND client_id = @client_id`),
 
  // Audit log
  insertAudit: buildStmt('insertAudit', `
