@@ -54,16 +54,20 @@ async function main() {
  const pg = new Pool({ connectionString: databaseUrl, max: 2 });
 
  // Ensure schema exists.
- const { initSchema } = require('../src/db');
- await initSchema();
+ const { db } = require('../src/db');
+ await db.initSchema();
  console.log('[migrate] PG schema ready');
 
- // Migrate each table in order. Counts first.
+ // Migrate each table in order. Counts first (skip tables not in SQLite).
  const tables = ['clients', 'branches', 'printers', 'jobs', 'cleanup_audit'];
  const counts = {};
  for (const t of tables) {
+ try {
  const row = sqlite.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get();
  counts[t] = row.n;
+ } catch (_) {
+ counts[t] = 0; // table doesn't exist in old SQLite (e.g. cleanup_audit)
+ }
  }
  console.log('[migrate] Row counts:', counts);
 
@@ -117,6 +121,10 @@ async function main() {
 
  let totalInserted = 0;
  for (const m of migrations) {
+ if (counts[m.table] === 0) {
+ console.log(`[migrate] ${m.table}: skipped (0 rows or table absent in SQLite)`);
+ continue;
+ }
  const rows = sqlite.prepare(`SELECT * FROM ${m.table}`).all();
  let inserted = 0;
  for (const r of rows) {

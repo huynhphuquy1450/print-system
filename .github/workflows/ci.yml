@@ -66,8 +66,12 @@ jobs:
       - name: Check for known secret patterns
         run: |
           echo "=== Scanning for hardcoded secrets ==="
+          # Loại trừ file test: fixture thường chứa cert/key GIẢ khớp pattern (vd chuỗi
+          # "BEGIN CERTIFICATE" trong https-server.test.js) → false positive. Secret thật
+          # không nằm trong test.
           if grep -rE "IwALxuEKX|05e91dd52e|089add841|77842914e7b390a|81aef7023a310693|a7644c8cf5f9bbee|MIIDDjCC|BEGIN CERTIFICATE" \
-             --include="*.md" --include="*.js" --include="*.ps1" --include="*.sh" . ; then
+             --include="*.md" --include="*.js" --include="*.ps1" --include="*.sh" \
+             --exclude="*.test.js" --exclude-dir="__tests__" --exclude-dir="node_modules" . ; then
             echo "ERROR: Found potential secrets in committed files"
             exit 1
           fi
