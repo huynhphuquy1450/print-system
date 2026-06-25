@@ -212,9 +212,9 @@ Tổng repo:   73 file (không tính node_modules, DB)
 |---|---|---|---|---|
 | POST | `/api/admin/agents` | Bearer | `{count, prefix?, name_template?}` | 201 `{created, branches:[{id, name, agent_token}]}` |
 
-### 4.8. Audit trail (khuyến nghị cho HQ)
+### 4.8. Audit trail (bắt buộc cho HQ)
 
-Để truy vết "ai in cái gì", mỗi `POST /api/print-jobs` nên truyền `metadata.user_id` (khuyến nghị) và `metadata.user_name` (tùy chọn, để hiển thị). Server lưu metadata vào DB dạng JSON, tra cứu qua `GET /api/print-jobs/:id` (response trả về `metadata` đã parse).
+Để truy vết "ai in cái gì", mỗi `POST /api/print-jobs` **BẮT BUỘC** truyền `metadata.user_id` (string không rỗng); `metadata.user_name` tùy chọn (để hiển thị). Server lưu metadata vào DB dạng JSON, tra cứu qua `GET /api/print-jobs/:id` (response trả về `metadata` đã parse).
 
 Ví dụ body (multipart):
 
@@ -230,8 +230,8 @@ curl -X POST https://print.example.com/api/print-jobs \
 **Lưu ý:**
 
 - `pdf` phải là file PDF binary (MIME `application/pdf`), tối đa 50 MB.
-- `metadata` là JSON string (KHÔNG phải object). Server parse tự do, không validate schema nội dung.
-- Nếu thiếu `user_id` trong metadata thì job vẫn chạy (status 201), nhưng sẽ không truy vết được sau này.
+- `metadata` là JSON string (KHÔNG phải object). Server bắt buộc field `user_id` (string không rỗng); các field còn lại không validate schema nội dung.
+- Nếu thiếu `user_id` (hoặc rỗng / không truyền `metadata`) → `400 { error: 'Validation failed', details: ['metadata.user_id is required'] }`, job KHÔNG được tạo.
 - Server cũng tự ghi `client_id` (ID của HQ client từ JWT) vào `jobs.client_id` — kết hợp với `metadata.user_id` để truy vết cả 2 chiều (HQ nào → user nào in).
 - **BREAKING CHANGE từ GĐ1**: API cũ nhận JSON `{pdf_base64: "..."}` đã bị thay thế hoàn toàn. Client phải gửi `multipart/form-data`.
 
@@ -684,7 +684,7 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 | 3 | ~~Cert self-signed → client phải `--cafile` hoặc `rejectUnauthorized:false`~~ | ~~Dev friction~~ | ✅ **Đã fix**: dùng **Step-CA** (smallstep) làm internal PKI — chạy ngay trên print-service box, init 1 lần qua `scripts/setup-step-ca.sh`. Cấp cert cho cả Mosquitto (`/etc/mosquitto/certs/server.crt`) lẫn Express HTTPS (`/opt/print-service/certs/server.crt`). Cert 90-day validity, auto-renew cron mỗi ngày 03:00 (`scripts/renew-step-certs.sh`). Root CA (`root_ca.crt`, ~5KB) distribute cho pilot branches qua kênh an toàn — install vào Windows "Trusted Root Certification Authorities". Xem §10.4 rollout checklist. |
 | 4 | ~~Không có HTTPS cho API (chỉ HTTP)~~ | ~~Insecure trên internet~~ | ✅ **Đã fix**: Express app giờ bind cả HTTP (PORT=3000, cho HQ LAN) lẫn HTTPS (HTTPS_PORT=443, cho internet agents) trong cùng 1 process. Module `server/src/https-server.js` wrap `https.createServer` với cert hot-reload qua `fs.watch` (renewal không cần restart app). Opt-in qua `HTTPS_ENABLED=true` (default `false` ở dev/CI). Khi deploy production: chạy `setup-step-ca.sh` + `ufw-open-https.sh` + set `HTTPS_ENABLED=true` trong `.env`. Xem §4.4 cho chi tiết dual-listener. |
 | 5 | ~~Không có rate-limit per-client (chỉ per-IP login)~~ | ~~HQ spam được~~ | ✅ **Đã fix**: middleware `clientRateLimit` (`server/src/middleware/rate-limit-client.js`), key theo `req.client.id`, default `CLIENT_WRITE_RATE_PER_MIN=30` (env). Áp dụng cho `POST /api/print-jobs`. Nếu scale horizontal → đổi sang Redis store. |
-| 6 | Không có audit log ai in cái gì | Đã có guidance cho HQ (xem §4.8) | HQ cần truyền `metadata.user_id` khi POST job |
+| 6 | ~~Không có audit log ai in cái gì~~ | ~~Đã có guidance cho HQ (xem §4.8)~~ | ✅ **Đã fix**: `POST /api/print-jobs` giờ **bắt buộc** `metadata.user_id` (string, không rỗng). Validate qua helper `requireMetadataUserId` (`server/src/middleware/validate.js`), gọi trong khối validate inline của `jobs.js`. Thiếu (hoặc không truyền `metadata`) → `400 { error: 'Validation failed', details: ['metadata.user_id is required'] }`. Test: `server/src/api/__tests__/jobs.test.js` (thiếu user_id → 400, có user_id → 201). **BREAKING CHANGE** cho HQ client cũ chưa gắn `user_id`. |
 | 7 | ~~Cron `cleanup-files` xóa PDF > 7 ngày — không audit~~ | ~~Mất data nếu cần reprint~~ | ✅ **Đã fix**: bảng `cleanup_audit` (`server/src/db.js`) ghi mỗi lần xóa (job_id, file_path, branch_id, reason, deleted_at, size_bytes) — `server/src/services/cleanup-audit.js` được gọi trong `db.transaction()` với `deleteJobById`, đảm bảo atomic (audit fail → delete roll back). Truy vết qua `SELECT * FROM cleanup_audit WHERE deleted_at > ?`. Schema + retention policy xem §10.3. |
 | 8 | HQ phải generate `agent_token` thủ công cho từng chi nhánh, copy qua chat → friction + leak risk khi scale 30+ branches | ✅ **Đã fix**: self-service onboarding flow — HQ chạy `node scripts/gen-client.js "Acme Corp"` với `OUTPUT_FILE=install.json` → JSON chứa `client_id`/`client_secret`/`server_url` (file mode 0o600). Mỗi chi nhánh IT chạy `agent --register install.json` → gọi `POST /api/setup/register-branch` với `client_id`+`client_secret`+`branch_name` → nhận `branch_id`+`agent_token`+`topic_prefix` → ghi `.env` (preserve existing keys). Audit log mỗi registration. Rate-limit 5/hr/IP (`SETUP_REGISTER_RATE_PER_HOUR`, env override). HTTPS warning-only trong production. Một install file dùng cho nhiều chi nhánh (re-run `--register`). Old endpoints `/api/branches` + `/api/admin/agents` giữ nguyên (back-compat). |
 
