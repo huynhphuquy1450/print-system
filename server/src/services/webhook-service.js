@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const dns = require('dns').promises;
 const net = require('net');
 const { stmts } = require('../db');
+const config = require('../config');
 const logger = require('../logger');
 
 const DELIVER_TIMEOUT_MS = 5000;
@@ -68,6 +69,11 @@ function validateWebhookUrl(url) {
   if (net.isIP(host) && isPrivateIp(host)) {
     return { ok: false, reason: 'host nội bộ không được phép' };
   }
+  // Allowlist opt-in: nếu cấu hình WEBHOOK_ALLOWED_HOSTS → chỉ cho exact host hoặc subdomain.
+  const allow = config.webhook.allowedHosts;
+  if (allow.length && !allow.some((a) => host === a || host.endsWith('.' + a))) {
+    return { ok: false, reason: 'host không nằm trong allowlist (WEBHOOK_ALLOWED_HOSTS)' };
+  }
   return { ok: true };
 }
 
@@ -127,7 +133,12 @@ async function deliver(hook, payload) {
         logger.info('Webhook delivered', { webhook_id: hook.id, status: resp.status, attempt });
         return true;
       }
-      logger.warn('Webhook non-2xx response', { webhook_id: hook.id, status: resp.status, attempt });
+      if (resp.status < 500) {
+        // 4xx = lỗi client vĩnh viễn → KHÔNG retry (tránh phí 3 lần thử cho 400/401/404).
+        logger.warn('Webhook 4xx (không retry)', { webhook_id: hook.id, status: resp.status, attempt });
+        return false;
+      }
+      logger.warn('Webhook 5xx (sẽ retry)', { webhook_id: hook.id, status: resp.status, attempt });
     } catch (e) {
       logger.warn('Webhook delivery error', { webhook_id: hook.id, attempt, err: e.message });
     } finally {
