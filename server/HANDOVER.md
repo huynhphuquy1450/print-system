@@ -235,6 +235,15 @@ curl -X POST https://print.example.com/api/print-jobs \
 - Server cũng tự ghi `client_id` (ID của HQ client từ JWT) vào `jobs.client_id` — kết hợp với `metadata.user_id` để truy vết cả 2 chiều (HQ nào → user nào in).
 - **BREAKING CHANGE từ GĐ1**: API cũ nhận JSON `{pdf_base64: "..."}` đã bị thay thế hoàn toàn. Client phải gửi `multipart/form-data`.
 
+**Migration cho HQ client cũ (enforce `user_id`):**
+
+Từ bản này, `metadata.user_id` chuyển từ *khuyến nghị* sang *bắt buộc*. HQ client cũ chưa gắn `user_id` sẽ nhận `400` thay vì `201`.
+
+- **Trước:** `metadata` tùy chọn; thiếu `user_id` → job vẫn tạo (`201`).
+- **Sau:** thiếu/rỗng `user_id` (hoặc không truyền `metadata`) → `400 { error: 'Validation failed', details: ['metadata.user_id is required'] }`, job KHÔNG được tạo.
+- **Client cần làm:** thêm `user_id` (string không rỗng, vd mã nhân viên) vào `metadata` ở **mọi** lần `POST /api/print-jobs` — xem ví dụ `curl` phía trên.
+- **Xử lý lỗi phía client:** bắt `400` với `details` chứa `'metadata.user_id is required'` → nhắc người dùng đăng nhập / chọn nhân viên trước khi in, không retry mù.
+
 ### 4.9. Rate Limiting (429)
 
 Có 2 lớp rate-limit (cả hai dùng `express-rate-limit`, store in-memory):
