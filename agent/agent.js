@@ -10,7 +10,8 @@
 // Handle --register BEFORE requiring env vars (the agent doesn't yet have
 // BRANCH_ID/AGENT_TOKEN during first-time registration). Detected by
 // presence of --register in argv; install JSON path is the next arg.
-if (process.argv.includes('--register')) {
+const REGISTER_MODE = process.argv.includes('--register');
+if (REGISTER_MODE) {
  const _idx = process.argv.indexOf('--register');
  const _installPath = process.argv[_idx + 1];
  if (!_installPath) {
@@ -18,7 +19,7 @@ if (process.argv.includes('--register')) {
  process.exit(1);
  }
  require('./register')(_installPath);
- return;
+ // Không dùng top-level return (babel-jest cấm) — REGISTER_MODE skip env-validate + boot bên dưới.
 }
 
 const mqtt = require('mqtt');
@@ -38,15 +39,20 @@ const API_URL = process.env.API_URL;
 const SUMATRA_PATH = process.env.SUMATRA_PATH;
 const TMP_DIR = process.env.TMP_DIR || path.join(__dirname, 'agents', 'agent-01', 'tmp');
 const PRINTER_NAME = process.env.PRINTER_NAME; // optional, mặc định = Windows default printer
+// Poll fallback: agent tự fetchPending mỗi POLL_INTERVAL giây, ĐỘC LẬP với MQTT (lưới an toàn
+// khi broker sập). Đơn vị giây, mặc định 15.
+const POLL_INTERVAL_MS = (parseInt(process.env.POLL_INTERVAL, 10) || 15) * 1000;
 
-// Validate required env
-for (const [k, v] of Object.entries({
+// Validate required env (skip khi --register: agent chưa có các biến này lúc đăng ký lần đầu)
+if (!REGISTER_MODE) {
+ for (const [k, v] of Object.entries({
  BRANCH_ID, AGENT_TOKEN, MQTT_URL, MQTT_USER, MQTT_PASS,
  MQTT_CA_FILE, API_URL, SUMATRA_PATH,
-})) {
+ })) {
  if (!v) {
  console.error(`[FATAL] Missing env: ${k}`);
  process.exit(1);
+ }
  }
 }
 
@@ -90,8 +96,18 @@ function cleanupStaleTmp() {
 
 // Job queue (sequential)
 const queue = [];
+// Dedup theo job_id: chặn enqueue trùng khi MQTT message + poll/fetchPending cùng thấy 1 job
+// (poll trả cả job 'sent' đang in dở). Xóa khỏi inflight khi xử lý XONG (kể cả lỗi) → server
+// requeue cùng job_id về sau vẫn nhận; KHÔNG dùng Set "đã thấy" vĩnh viễn.
+const inflight = new Set();
 let busy = false;
 function enqueue(job) {
+ const jobId = job.job_id || job.id;
+ if (inflight.has(jobId)) {
+ log('debug', 'Dedup: job already queued/processing', { job_id: jobId });
+ return;
+ }
+ inflight.add(jobId);
  queue.push(job);
  drain();
 }
@@ -104,6 +120,7 @@ async function drain() {
  } catch (e) {
  log('error', 'drain unhandled error', { err: e.message, stack: e.stack });
  } finally {
+ inflight.delete(job.job_id || job.id);
  busy = false;
  drain();
  }
@@ -158,6 +175,8 @@ async function downloadJobFile(jobId) {
  validateStatus: () => true, // tự xử lý status
  });
  } catch (e) {
+ // Lỗi mạng tạm thời: throw → job rời inflight. KHÔNG requeue tức thì ở đây — poll định kỳ
+ // (POLL_INTERVAL) sẽ tự nhặt lại vì server vẫn giữ job ở 'sent'/'pending' tới khi printed.
  throw new Error(`Download request failed: ${e.message}`);
  }
 
@@ -311,7 +330,12 @@ function connectMqtt() {
  });
 }
 
+// Guard: poll định kỳ + event MQTT 'connect' có thể gọi fetchPending trùng lúc — bỏ qua nếu
+// đang có một request fetch dở (dedup ở enqueue vẫn chặn job trùng, đây chỉ tránh GET thừa).
+let fetchInFlight = false;
 async function fetchPending() {
+ if (fetchInFlight) return;
+ fetchInFlight = true;
  try {
  const r = await axios.get(`${API_URL}/api/print-jobs`, {
  params: { branch_id: BRANCH_ID },
@@ -326,17 +350,28 @@ async function fetchPending() {
  jobs.forEach(enqueue);
  } catch (e) {
  log('error', 'Fetch pending failed', { err: e.message, response: e.response?.data });
+ } finally {
+ fetchInFlight = false;
  }
 }
 
 // Graceful shutdown
+let pollTimer = null;
 function shutdown(signal) {
  log('info', `Received ${signal}, exiting`);
+ if (pollTimer) clearInterval(pollTimer);
  process.exit(0);
 }
 ['SIGINT', 'SIGTERM', 'SIGHUP'].forEach(s => process.on(s, () => shutdown(s)));
 
-// Boot
-log('info', 'Agent starting', { branch: BRANCH_ID, pid: process.pid, node: process.version });
-cleanupStaleTmp();
-connectMqtt();
+// Boot — chỉ chạy khi thực thi trực tiếp (không khi require từ test, không khi --register)
+if (require.main === module && !REGISTER_MODE) {
+ log('info', 'Agent starting', { branch: BRANCH_ID, pid: process.pid, node: process.version });
+ cleanupStaleTmp();
+ connectMqtt();
+ // Poll fallback ĐỘC LẬP với MQTT: MQTT sập hẳn vẫn lấy + in được job qua HTTP.
+ pollTimer = setInterval(fetchPending, POLL_INTERVAL_MS);
+ log('info', 'Poll fallback started', { intervalMs: POLL_INTERVAL_MS });
+}
+
+module.exports = { enqueue, drain, processJob, fetchPending };
