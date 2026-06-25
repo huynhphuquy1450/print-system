@@ -6,7 +6,7 @@ jest.mock('../../config', () => ({
   rateLimit: { clientWritePerMin: 3 },
 }));
 
-const { clientRateLimit } = require('../rate-limit-client');
+const { clientRateLimit, bulkRateLimit } = require('../rate-limit-client');
 
 // express-rate-limit v7 trả về AsyncFunction, cần res có setHeader/send để tránh crash.
 // Trong production, res là express Response thật — không thiếu.
@@ -87,5 +87,44 @@ describe('clientRateLimit middleware', () => {
     const err = next.mock.calls[0][0];
     expect(err).toBeInstanceOf(Error);
     expect(err.message).toMatch(/verifyClient/);
+  });
+});
+
+describe('bulkRateLimit middleware (đếm theo số job, không theo request)', () => {
+  // max = clientWritePerMin = 3 (config mock).
+  function reqWithFiles(clientId, n) {
+    const { req, res, next } = mockReqRes(clientId);
+    req.files = Array.from({ length: n }, (_, i) => ({ originalname: `f${i}.pdf` }));
+    return { req, res, next };
+  }
+
+  test('tổng số file vượt max → 429 (1 request 2 file + 1 request 2 file = 4 > 3)', () => {
+    const mw = bulkRateLimit();
+    const a = reqWithFiles('bulk_c1', 2);
+    mw(a.req, a.res, a.next);
+    expect(a.next).toHaveBeenCalledTimes(1); // 2 ≤ 3 → qua
+
+    const b = reqWithFiles('bulk_c1', 2);
+    mw(b.req, b.res, b.next);
+    expect(b.res.status).toHaveBeenCalledWith(429); // 2+2=4 > 3 → chặn
+    expect(b.next).not.toHaveBeenCalled();
+  });
+
+  test('client khác nhau có bộ đếm độc lập', () => {
+    const mw = bulkRateLimit();
+    const a = reqWithFiles('bulk_c2', 3);
+    mw(a.req, a.res, a.next); // dùng hết quota c2
+    const b = reqWithFiles('bulk_c3', 3);
+    mw(b.req, b.res, b.next);
+    expect(b.next).toHaveBeenCalledTimes(1);
+    expect(b.res.status).not.toHaveBeenCalled();
+  });
+
+  test('req.client undefined → next(error)', () => {
+    const mw = bulkRateLimit();
+    const { req, res, next } = reqWithFiles(null, 1);
+    mw(req, res, next);
+    expect(next.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(next.mock.calls[0][0].message).toMatch(/verifyClient/);
   });
 });

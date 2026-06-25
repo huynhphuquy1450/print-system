@@ -74,8 +74,10 @@ async function run() {
  retry_count: job.retry_count + 1,
  created_at: Date.now(),
  });
- await stmts.incrementRetry.run({ id: job.id });
- await stmts.markJobSent.run({ sent_at: Date.now(), id: job.id });
+ // requeueJob: set status='sent' + sent_at=now + retry_count+1 trong 1 UPDATE (KHÔNG guard
+ // status='pending'). Trước đây markJobSent có guard 'pending' nên với job stale 'sent' nó
+ // no-op → sent_at không đổi → job bị chọn lại mỗi interval (retry dồn dập). requeueJob sửa đúng.
+ await stmts.requeueJob.run({ sent_at: Date.now(), id: job.id });
  logger.info('Job republished', { job_id: job.id, retry: job.retry_count + 1 });
  } catch (e) {
  logger.error('Republish failed', { job_id: job.id, err: e.message });

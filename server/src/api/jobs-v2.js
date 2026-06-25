@@ -5,8 +5,15 @@ const express = require('express');
 const router = express.Router();
 const jobService = require('../services/job-service');
 const { verifyClient } = require('../middleware/auth');
-const { clientRateLimit } = require('../middleware/rate-limit-client');
+const { clientRateLimit, bulkRateLimit } = require('../middleware/rate-limit-client');
 const { pdfUploadBulk } = require('../middleware/upload');
+
+// Parse optional ms-epoch query param: undefined nếu vắng, null nếu không phải số (→ 400).
+function parseEpoch(v) {
+  if (v == null) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 /**
  * GET /api/v2/print-jobs (Client JWT)
@@ -16,12 +23,17 @@ const { pdfUploadBulk } = require('../middleware/upload');
 router.get('/', verifyClient, async (req, res, next) => {
   try {
     const { branch_id, status, from, to, limit, offset } = req.query;
+    const fromMs = parseEpoch(from);
+    const toMs = parseEpoch(to);
+    if (fromMs === null || toMs === null) {
+      return res.status(400).json({ error: 'from/to phải là số (ms epoch)' });
+    }
     const result = await jobService.listJobsFiltered({
       clientId: req.client.id,
       branchId: branch_id,
       status,
-      from: from != null ? parseInt(from, 10) : undefined,
-      to: to != null ? parseInt(to, 10) : undefined,
+      from: fromMs,
+      to: toMs,
       limit,
       offset,
     });
@@ -39,7 +51,7 @@ router.get('/', verifyClient, async (req, res, next) => {
  * Trả 201 nếu tất cả OK, 207 nếu có item lỗi (partial). Body: { created, failed }
  * PHẢI đặt TRƯỚC /:id/retry để '/bulk' không bị nuốt thành :id.
  */
-router.post('/bulk', verifyClient, clientRateLimit(), pdfUploadBulk, async (req, res, next) => {
+router.post('/bulk', verifyClient, clientRateLimit(), pdfUploadBulk, bulkRateLimit(), async (req, res, next) => {
   try {
     const files = req.files || [];
     if (files.length === 0) {
