@@ -76,25 +76,33 @@ describe('audit-service record()', () => {
 });
 
 describe('audit-service list()', () => {
-  test('không filter → query không WHERE, total + entries', async () => {
+  test('thiếu clientId → ném (không cho đọc audit toàn cục)', async () => {
+    await expect(auditService.list({})).rejects.toThrow(/clientId/);
+  });
+
+  test('luôn scope theo client + branch thuộc client (tenant isolation)', async () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ total: '2' }] })
       .mockResolvedValueOnce({ rows: [{ id: 1, action: 'auth.login' }] });
 
-    const out = await auditService.list({});
+    const out = await auditService.list({ clientId: 'cl_1' });
     expect(out.total).toBe(2);
     expect(out.entries).toHaveLength(1);
-    expect(db.query.mock.calls[0][0]).not.toMatch(/WHERE/);
+    // WHERE giới hạn actor_id = client HOẶC branch thuộc client; chỉ 1 param $1
+    expect(db.query.mock.calls[0][0]).toMatch(
+      /WHERE \(actor_id = \$1 OR actor_id IN \(SELECT id FROM branches WHERE client_id = \$1\)\)/
+    );
+    expect(db.query.mock.calls[0][1]).toEqual(['cl_1']);
   });
 
-  test('filter actor_id + action → WHERE + params đúng thứ tự, kèm limit/offset', async () => {
+  test('filter actor_id + action → nối sau scope, params đúng thứ tự, kèm limit/offset', async () => {
     db.query
       .mockResolvedValueOnce({ rows: [{ total: '1' }] })
       .mockResolvedValueOnce({ rows: [] });
 
-    await auditService.list({ actorId: 'cl_1', action: 'job.create', limit: 20, offset: 40 });
-    expect(db.query.mock.calls[0][0]).toMatch(/WHERE actor_id = \$1 AND action = \$2/);
-    expect(db.query.mock.calls[0][1]).toEqual(['cl_1', 'job.create']);
-    expect(db.query.mock.calls[1][1]).toEqual(['cl_1', 'job.create', 20, 40]);
+    await auditService.list({ clientId: 'cl_1', actorId: 'cl_1', action: 'job.create', limit: 20, offset: 40 });
+    expect(db.query.mock.calls[0][0]).toMatch(/\) AND actor_id = \$2 AND action = \$3/);
+    expect(db.query.mock.calls[0][1]).toEqual(['cl_1', 'cl_1', 'job.create']);
+    expect(db.query.mock.calls[1][1]).toEqual(['cl_1', 'cl_1', 'job.create', 20, 40]);
   });
 });

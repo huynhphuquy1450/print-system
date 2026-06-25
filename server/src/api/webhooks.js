@@ -7,16 +7,7 @@ const router = express.Router();
 const { stmts } = require('../db');
 const { verifyClient } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
-
-// Chỉ chấp nhận http/https — chặn scheme lạ (file:, gopher:...). SSRF allowlist host: future.
-function isValidUrl(url) {
-  try {
-    const u = new URL(url);
-    return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
+const { validateWebhookUrl } = require('../services/webhook-service');
 
 /**
  * POST /api/v2/webhooks (Client JWT)
@@ -29,8 +20,9 @@ router.post(
   async (req, res, next) => {
     try {
       const { url, events } = req.body;
-      if (!isValidUrl(url)) {
-        return res.status(400).json({ error: 'url phải là http(s) hợp lệ' });
+      const urlCheck = validateWebhookUrl(url);
+      if (!urlCheck.ok) {
+        return res.status(400).json({ error: `url không hợp lệ: ${urlCheck.reason}` });
       }
       const id = `wh_${crypto.randomBytes(6).toString('hex')}`;
       const secret = crypto.randomBytes(24).toString('hex');

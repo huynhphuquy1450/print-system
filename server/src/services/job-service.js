@@ -117,9 +117,12 @@ function parseMetadata(j) {
  * Tham số filter luôn truyền qua placeholder ($N) — không nối chuỗi (chống SQL injection).
  * Returns: { jobs, total, limit, offset }
  */
-async function listJobsFiltered({ branchId, status, from, to, limit = 50, offset = 0 } = {}) {
+async function listJobsFiltered({ clientId, branchId, status, from, to, limit = 50, offset = 0 } = {}) {
+ if (!clientId) throw new HttpError(400, 'clientId is required');
  const where = [];
  const params = [];
+ // Tenant isolation: client chỉ thấy job của chính mình (jobs.client_id).
+ params.push(clientId); where.push(`client_id = $${params.length}`);
  if (branchId) { params.push(branchId); where.push(`branch_id = $${params.length}`); }
  if (status) { params.push(status); where.push(`status = $${params.length}`); }
  if (from != null) { params.push(from); where.push(`created_at >= $${params.length}`); }
@@ -141,15 +144,18 @@ async function listJobsFiltered({ branchId, status, from, to, limit = 50, offset
 }
 
 /**
- * Retry thủ công (HM3): re-publish một job 'failed' (hoặc 'sent' bị kẹt) tới agent.
+ * Retry thủ công (HM3): re-publish một job 'failed' của chính client tới agent.
  * File PDF phải còn trên disk (job failed quá retention đã bị cleanup → 410).
  * Reset status='sent', xóa error, tăng retry_count.
  */
-async function retryJob(jobId) {
+async function retryJob(jobId, clientId) {
  const job = await stmts.getJobById.get(jobId);
- if (!job) throw new HttpError(404, 'Job not found');
- if (job.status !== 'failed' && job.status !== 'sent') {
- throw new HttpError(409, `Chỉ retry được job 'failed'/'sent', job đang '${job.status}'`);
+ // Tenant isolation: chỉ chủ sở hữu retry được (404 thay vì 403 để không lộ tồn tại job).
+ if (!job || job.client_id !== clientId) throw new HttpError(404, 'Job not found');
+ // Chỉ retry job 'failed'. KHÔNG retry 'sent' (agent có thể đang in → tránh in trùng);
+ // job 'sent' bị kẹt đã được cron retry-stale tự xử lý.
+ if (job.status !== 'failed') {
+ throw new HttpError(409, `Chỉ retry được job 'failed', job đang '${job.status}'`);
  }
  if (!job.file_path || !fs.existsSync(job.file_path)) {
  throw new HttpError(410, `PDF file đã bị cleanup, không thể retry job ${jobId}`);

@@ -37,7 +37,7 @@ describe('GET /api/v2/print-jobs (HM3)', () => {
 
     expect(res.status).toBe(200);
     const arg = jobService.listJobsFiltered.mock.calls[0][0];
-    expect(arg).toMatchObject({ branchId: 'br_1', status: 'failed', from: 1000, to: 2000, limit: '10' });
+    expect(arg).toMatchObject({ clientId: 'client_001', branchId: 'br_1', status: 'failed', from: 1000, to: 2000, limit: '10' });
   });
 });
 
@@ -46,7 +46,7 @@ describe('POST /api/v2/print-jobs/:id/retry (HM3)', () => {
     jobService.retryJob.mockResolvedValue({ ok: true, job_id: 'jX', status: 'sent' });
     const res = await request(app).post('/api/v2/print-jobs/jX/retry');
     expect(res.status).toBe(200);
-    expect(jobService.retryJob).toHaveBeenCalledWith('jX');
+    expect(jobService.retryJob).toHaveBeenCalledWith('jX', 'client_001');
     expect(res.body).toMatchObject({ ok: true, status: 'sent' });
   });
 

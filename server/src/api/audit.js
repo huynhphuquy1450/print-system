@@ -15,6 +15,7 @@ router.get('/', verifyClient, async (req, res, next) => {
   try {
     const { actor_id, action, from, to, limit, offset } = req.query;
     const result = await auditService.list({
+      clientId: req.client.id,
       actorId: actor_id,
       action,
       from: from != null ? parseInt(from, 10) : undefined,

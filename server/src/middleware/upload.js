@@ -4,7 +4,9 @@ const multer = require('multer');
 const { HttpError } = require('../errors');
 
 const MAX_PDF_BYTES = 50 * 1024 * 1024; // 50 MB — was 50MB effective via express.json + base64 bloat, now true cap
-const MAX_BULK_FILES = 100; // HM7: số PDF tối đa trong 1 request bulk
+// HM7: số PDF tối đa trong 1 request bulk. Giữ thấp để chặn DoS bộ nhớ:
+// memoryStorage buffer toàn bộ → trần RAM/req = MAX_BULK_FILES * MAX_PDF_BYTES (20*50MB ≈ 1GB).
+const MAX_BULK_FILES = 20;
 
 function pdfFileFilter(req, file, cb) {
  if (file.mimetype === 'application/pdf') return cb(null, true);

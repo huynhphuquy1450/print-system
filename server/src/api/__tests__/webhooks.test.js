@@ -46,6 +46,14 @@ describe('POST /api/v2/webhooks', () => {
     expect(stmts.insertWebhook.run).not.toHaveBeenCalled();
   });
 
+  test('url host nội bộ (SSRF) → 400, không insert', async () => {
+    for (const url of ['http://localhost/cb', 'http://127.0.0.1/cb', 'http://169.254.169.254/']) {
+      const res = await request(app).post('/api/v2/webhooks').send({ url });
+      expect(res.status).toBe(400);
+    }
+    expect(stmts.insertWebhook.run).not.toHaveBeenCalled();
+  });
+
   test('thiếu url → 400 (validate)', async () => {
     const res = await request(app).post('/api/v2/webhooks').send({});
     expect(res.status).toBe(400);

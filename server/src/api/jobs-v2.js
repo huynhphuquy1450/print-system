@@ -17,6 +17,7 @@ router.get('/', verifyClient, async (req, res, next) => {
   try {
     const { branch_id, status, from, to, limit, offset } = req.query;
     const result = await jobService.listJobsFiltered({
+      clientId: req.client.id,
       branchId: branch_id,
       status,
       from: from != null ? parseInt(from, 10) : undefined,
@@ -73,7 +74,7 @@ router.post('/bulk', verifyClient, clientRateLimit(), pdfUploadBulk, async (req,
  */
 router.post('/:id/retry', verifyClient, clientRateLimit(), async (req, res, next) => {
   try {
-    const result = await jobService.retryJob(req.params.id);
+    const result = await jobService.retryJob(req.params.id, req.client.id);
     res.locals.audit = { action: 'job.retry', resource_type: 'job', resource_id: req.params.id };
     res.json(result);
   } catch (e) {

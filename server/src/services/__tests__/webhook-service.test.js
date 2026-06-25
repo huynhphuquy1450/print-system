@@ -1,19 +1,25 @@
 'use strict';
 
-// HM4 — webhook-service: sign/eventsMatch/deliver/dispatch. Mock db + global fetch.
+// HM4 — webhook-service: sign/eventsMatch/deliver/dispatch + SSRF guard. Mock db + dns + fetch.
 jest.mock('../../db', () => ({
   stmts: {
     listActiveWebhooksByClient: { all: jest.fn() },
   },
 }));
 
+// dns.promises.lookup được mock để deliver/assertPublicUrl không gọi DNS thật.
+jest.mock('dns', () => ({ promises: { lookup: jest.fn() } }));
+
 const crypto = require('crypto');
+const dns = require('dns');
 const { stmts } = require('../../db');
 const webhookService = require('../webhook-service');
 
 beforeEach(() => {
   jest.clearAllMocks();
   global.fetch = jest.fn();
+  // Mặc định: host trỏ tới IP public → SSRF guard cho qua.
+  dns.promises.lookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
 });
 
 describe('sign / eventsMatch', () => {
@@ -83,5 +89,38 @@ describe('dispatch', () => {
   test('lỗi DB khi list → nuốt, không ném', async () => {
     stmts.listActiveWebhooksByClient.all.mockRejectedValue(new Error('db down'));
     await expect(webhookService.dispatch({ clientId: 'cl_1', jobId: 'jX', status: 'printed' })).resolves.toBeUndefined();
+  });
+});
+
+describe('SSRF guard', () => {
+  test('isPrivateIp: nhận diện loopback/private/link-local/ULA', () => {
+    for (const ip of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '::1', 'fd00::1', 'fe80::1']) {
+      expect(webhookService.isPrivateIp(ip)).toBe(true);
+    }
+    for (const ip of ['8.8.8.8', '93.184.216.34', '2606:2800:220:1::1']) {
+      expect(webhookService.isPrivateIp(ip)).toBe(false);
+    }
+  });
+
+  test('validateWebhookUrl: chặn scheme lạ + host nội bộ literal/localhost', () => {
+    expect(webhookService.validateWebhookUrl('https://erp.example/cb').ok).toBe(true);
+    expect(webhookService.validateWebhookUrl('ftp://x/y').ok).toBe(false);
+    expect(webhookService.validateWebhookUrl('not a url').ok).toBe(false);
+    expect(webhookService.validateWebhookUrl('http://localhost/cb').ok).toBe(false);
+    expect(webhookService.validateWebhookUrl('http://127.0.0.1/cb').ok).toBe(false);
+    expect(webhookService.validateWebhookUrl('http://169.254.169.254/latest/meta-data').ok).toBe(false);
+    expect(webhookService.validateWebhookUrl('http://192.168.0.5:8080/cb').ok).toBe(false);
+  });
+
+  test('assertPublicUrl: ném khi DNS trỏ tới IP nội bộ (chống DNS rebinding)', async () => {
+    dns.promises.lookup.mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
+    await expect(webhookService.assertPublicUrl('https://rebind.evil/cb')).rejects.toThrow(/nội bộ/);
+  });
+
+  test('deliver: URL bị chặn → trả false, KHÔNG fetch', async () => {
+    dns.promises.lookup.mockResolvedValue([{ address: '10.0.0.9', family: 4 }]);
+    const ok = await webhookService.deliver({ id: 'wh', url: 'https://rebind.evil/cb', secret: 's' }, { event: 'job.status' });
+    expect(ok).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

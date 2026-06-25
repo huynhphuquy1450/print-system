@@ -47,14 +47,21 @@ async function record(entry) {
  * Đọc audit log cho HQ (HM3): filter theo actor/action/khoảng thời gian + pagination.
  * Tham số filter qua placeholder ($N) — không nối chuỗi. Returns: { entries, total, limit, offset }
  */
-async function list({ actorId, action, from, to, limit = 50, offset = 0 } = {}) {
+async function list({ clientId, actorId, action, from, to, limit = 50, offset = 0 } = {}) {
+  if (!clientId) throw new Error('list() requires clientId for tenant scoping');
   const where = [];
   const params = [];
+  // Tenant isolation: client chỉ thấy audit của CHÍNH mình + của các branch thuộc client đó
+  // (actor_id của agent là branch_id). audit_log không có cột client_id nên scope qua branches.
+  params.push(clientId);
+  where.push(
+    `(actor_id = $${params.length} OR actor_id IN (SELECT id FROM branches WHERE client_id = $${params.length}))`
+  );
   if (actorId) { params.push(actorId); where.push(`actor_id = $${params.length}`); }
   if (action) { params.push(action); where.push(`action = $${params.length}`); }
   if (from != null) { params.push(from); where.push(`at >= $${params.length}`); }
   if (to != null) { params.push(to); where.push(`at <= $${params.length}`); }
-  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const whereSql = `WHERE ${where.join(' AND ')}`;
 
   const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
   const off = Math.max(parseInt(offset, 10) || 0, 0);
