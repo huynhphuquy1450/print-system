@@ -6,4 +6,8 @@
 const express = require('express');
 const router = express.Router();
 
+// HM3 — job history/filter/retry + đọc audit log
+router.use('/print-jobs', require('./jobs-v2'));
+router.use('/audit-log', require('./audit'));
+
 module.exports = router;

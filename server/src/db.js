@@ -230,6 +230,9 @@ const stmts = {
  markJobFailed: buildStmt('markJobFailed', `
  UPDATE jobs SET status = 'failed', failed_at = @failed_at, error = @error WHERE id = @id
  `),
+ requeueJob: buildStmt('requeueJob', `
+ UPDATE jobs SET status = 'sent', sent_at = @sent_at, error = NULL, retry_count = retry_count + 1 WHERE id = @id
+ `),
  incrementRetry: buildStmt('incrementRetry', `
  UPDATE jobs SET retry_count = retry_count + 1 WHERE id = @id
  `),

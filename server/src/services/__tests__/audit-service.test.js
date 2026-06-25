@@ -2,16 +2,17 @@
 
 // audit-service.record() ghi qua stmts.insertAudit (mock '../../db').
 jest.mock('../../db', () => ({
+  db: { query: jest.fn() },
   stmts: {
     insertAudit: { run: jest.fn().mockResolvedValue({ rowCount: 1 }) },
   },
 }));
 
-const { stmts } = require('../../db');
+const { db, stmts } = require('../../db');
 const auditService = require('../audit-service');
 
 beforeEach(() => {
-  stmts.insertAudit.run.mockClear();
+  jest.clearAllMocks();
   stmts.insertAudit.run.mockResolvedValue({ rowCount: 1 });
 });
 
@@ -71,5 +72,29 @@ describe('audit-service record()', () => {
   test('lỗi DB được nuốt — không ném ra ngoài', async () => {
     stmts.insertAudit.run.mockRejectedValueOnce(new Error('db down'));
     await expect(auditService.record({ action: 'job.create' })).resolves.toBeUndefined();
+  });
+});
+
+describe('audit-service list()', () => {
+  test('không filter → query không WHERE, total + entries', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ total: '2' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 1, action: 'auth.login' }] });
+
+    const out = await auditService.list({});
+    expect(out.total).toBe(2);
+    expect(out.entries).toHaveLength(1);
+    expect(db.query.mock.calls[0][0]).not.toMatch(/WHERE/);
+  });
+
+  test('filter actor_id + action → WHERE + params đúng thứ tự, kèm limit/offset', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ total: '1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await auditService.list({ actorId: 'cl_1', action: 'job.create', limit: 20, offset: 40 });
+    expect(db.query.mock.calls[0][0]).toMatch(/WHERE actor_id = \$1 AND action = \$2/);
+    expect(db.query.mock.calls[0][1]).toEqual(['cl_1', 'job.create']);
+    expect(db.query.mock.calls[1][1]).toEqual(['cl_1', 'job.create', 20, 40]);
   });
 });

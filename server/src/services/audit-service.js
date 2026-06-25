@@ -1,6 +1,6 @@
 'use strict';
 
-const { stmts } = require('../db');
+const { db, stmts } = require('../db');
 const logger = require('../logger');
 
 /**
@@ -43,4 +43,31 @@ async function record(entry) {
   }
 }
 
-module.exports = { record };
+/**
+ * Đọc audit log cho HQ (HM3): filter theo actor/action/khoảng thời gian + pagination.
+ * Tham số filter qua placeholder ($N) — không nối chuỗi. Returns: { entries, total, limit, offset }
+ */
+async function list({ actorId, action, from, to, limit = 50, offset = 0 } = {}) {
+  const where = [];
+  const params = [];
+  if (actorId) { params.push(actorId); where.push(`actor_id = $${params.length}`); }
+  if (action) { params.push(action); where.push(`action = $${params.length}`); }
+  if (from != null) { params.push(from); where.push(`at >= $${params.length}`); }
+  if (to != null) { params.push(to); where.push(`at <= $${params.length}`); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+  const off = Math.max(parseInt(offset, 10) || 0, 0);
+
+  const totalRes = await db.query(`SELECT COUNT(*) AS total FROM audit_log ${whereSql}`, params);
+  const total = Number(totalRes.rows[0].total);
+
+  const pageParams = params.concat([lim, off]);
+  const rows = await db.query(
+    `SELECT * FROM audit_log ${whereSql} ORDER BY at DESC LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length}`,
+    pageParams
+  );
+  return { entries: rows.rows, total, limit: lim, offset: off };
+}
+
+module.exports = { record, list };

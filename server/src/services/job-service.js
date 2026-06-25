@@ -5,7 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const config = require('../config');
 const logger = require('../logger');
-const { stmts } = require('../db');
+const { db, stmts } = require('../db');
 const mqttClient = require('../mqtt-client');
 const { validatePdf } = require('./pdf-validator');
 const { HttpError } = require('../errors');
@@ -103,6 +103,67 @@ async function listAllJobs() {
  });
 }
 
+function parseMetadata(j) {
+ if (j.metadata) {
+ try { j.metadata = JSON.parse(j.metadata); } catch (e) {}
+ }
+ return j;
+}
+
+/**
+ * List job cho HQ dashboard (HM3): filter branch_id/status/khoảng thời gian + pagination.
+ * Tham số filter luôn truyền qua placeholder ($N) — không nối chuỗi (chống SQL injection).
+ * Returns: { jobs, total, limit, offset }
+ */
+async function listJobsFiltered({ branchId, status, from, to, limit = 50, offset = 0 } = {}) {
+ const where = [];
+ const params = [];
+ if (branchId) { params.push(branchId); where.push(`branch_id = $${params.length}`); }
+ if (status) { params.push(status); where.push(`status = $${params.length}`); }
+ if (from != null) { params.push(from); where.push(`created_at >= $${params.length}`); }
+ if (to != null) { params.push(to); where.push(`created_at <= $${params.length}`); }
+ const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+ const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+ const off = Math.max(parseInt(offset, 10) || 0, 0);
+
+ const totalRes = await db.query(`SELECT COUNT(*) AS total FROM jobs ${whereSql}`, params);
+ const total = Number(totalRes.rows[0].total);
+
+ const pageParams = params.concat([lim, off]);
+ const rows = await db.query(
+ `SELECT * FROM jobs ${whereSql} ORDER BY created_at DESC LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length}`,
+ pageParams
+ );
+ return { jobs: rows.rows.map(parseMetadata), total, limit: lim, offset: off };
+}
+
+/**
+ * Retry thủ công (HM3): re-publish một job 'failed' (hoặc 'sent' bị kẹt) tới agent.
+ * File PDF phải còn trên disk (job failed quá retention đã bị cleanup → 410).
+ * Reset status='sent', xóa error, tăng retry_count.
+ */
+async function retryJob(jobId) {
+ const job = await stmts.getJobById.get(jobId);
+ if (!job) throw new HttpError(404, 'Job not found');
+ if (job.status !== 'failed' && job.status !== 'sent') {
+ throw new HttpError(409, `Chỉ retry được job 'failed'/'sent', job đang '${job.status}'`);
+ }
+ if (!job.file_path || !fs.existsSync(job.file_path)) {
+ throw new HttpError(410, `PDF file đã bị cleanup, không thể retry job ${jobId}`);
+ }
+ const metadata = parseMetadata({ metadata: job.metadata }).metadata || {};
+ await mqttClient.publishJob(job.branch_id, {
+ job_id: jobId,
+ version: 2,
+ printer: job.printer || null,
+ metadata,
+ created_at: Date.now(),
+ });
+ await stmts.requeueJob.run({ sent_at: Date.now(), id: jobId });
+ return { ok: true, job_id: jobId, status: 'sent' };
+}
+
 /**
  * Agent callback: báo printed/failed
  * Validate: branch_id trong job phải khớp với agent's branch (chống replay)
@@ -166,6 +227,8 @@ module.exports = {
  getJob,
  listPendingForBranch,
  listAllJobs,
+ listJobsFiltered,
+ retryJob,
  updateJobStatus,
  getJobFileForAgent,
 };
