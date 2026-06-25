@@ -13,6 +13,7 @@ jest.mock('dns', () => ({ promises: { lookup: jest.fn() } }));
 const crypto = require('crypto');
 const dns = require('dns');
 const { stmts } = require('../../db');
+const config = require('../../config');
 const webhookService = require('../webhook-service');
 
 beforeEach(() => {
@@ -53,11 +54,18 @@ describe('deliver', () => {
     expect(opts.headers['X-Delivery-Id']).toBe('d1');
   });
 
-  test('fetch luôn non-2xx → false sau MAX_ATTEMPTS lần thử', async () => {
+  test('fetch luôn 5xx → false sau MAX_ATTEMPTS lần thử (có retry)', async () => {
     global.fetch.mockResolvedValue({ ok: false, status: 500 });
     const ok = await webhookService.deliver({ id: 'wh', url: 'https://x/y', secret: 's' }, { event: 'job.status' });
     expect(ok).toBe(false);
     expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  test('fetch 4xx → false NGAY, KHÔNG retry (lỗi client vĩnh viễn)', async () => {
+    global.fetch.mockResolvedValue({ ok: false, status: 404 });
+    const ok = await webhookService.deliver({ id: 'wh', url: 'https://erp.example/cb', secret: 's' }, { event: 'job.status' });
+    expect(ok).toBe(false);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -110,6 +118,18 @@ describe('SSRF guard', () => {
     expect(webhookService.validateWebhookUrl('http://127.0.0.1/cb').ok).toBe(false);
     expect(webhookService.validateWebhookUrl('http://169.254.169.254/latest/meta-data').ok).toBe(false);
     expect(webhookService.validateWebhookUrl('http://192.168.0.5:8080/cb').ok).toBe(false);
+  });
+
+  test('allowlist (opt-in): chỉ host khớp exact/subdomain mới qua', () => {
+    config.webhook.allowedHosts = ['erp.acme.com'];
+    try {
+      expect(webhookService.validateWebhookUrl('https://erp.acme.com/cb').ok).toBe(true);
+      expect(webhookService.validateWebhookUrl('https://api.erp.acme.com/cb').ok).toBe(true); // subdomain
+      expect(webhookService.validateWebhookUrl('https://evil.com/cb').ok).toBe(false);
+      expect(webhookService.validateWebhookUrl('https://notacme.com/cb').ok).toBe(false);
+    } finally {
+      config.webhook.allowedHosts = []; // reset để không ảnh hưởng test khác
+    }
   });
 
   test('assertPublicUrl: ném khi DNS trỏ tới IP nội bộ (chống DNS rebinding)', async () => {

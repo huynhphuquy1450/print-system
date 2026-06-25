@@ -6,6 +6,10 @@ jest.mock('../../config', () => ({
   rateLimit: { clientWritePerMin: 3 },
 }));
 
+// redis mock: mặc định trả null → mọi test dùng memory path; override trong Redis-mode tests.
+jest.mock('../../redis', () => ({ getRedisClient: jest.fn(() => null) }));
+
+const { getRedisClient } = require('../../redis');
 const { clientRateLimit, bulkRateLimit } = require('../rate-limit-client');
 
 // express-rate-limit v7 trả về AsyncFunction, cần res có setHeader/send để tránh crash.
@@ -126,5 +130,48 @@ describe('bulkRateLimit middleware (đếm theo số job, không theo request)',
     mw(req, res, next);
     expect(next.mock.calls[0][0]).toBeInstanceOf(Error);
     expect(next.mock.calls[0][0].message).toMatch(/verifyClient/);
+  });
+});
+
+describe('bulkRateLimit middleware (Redis mode)', () => {
+  function withFiles(clientId, n) {
+    const r = mockReqRes(clientId);
+    r.req.files = Array.from({ length: n }, (_, i) => ({ originalname: `f${i}.pdf` }));
+    return r;
+  }
+  afterEach(() => getRedisClient.mockReturnValue(null)); // reset về memory cho describe khác
+
+  test('dùng Redis incrby/pexpire; tổng vượt max → 429', async () => {
+    const store = {};
+    const fakeRedis = {
+      incrby: jest.fn(async (k, n) => { store[k] = (store[k] || 0) + n; return store[k]; }),
+      pexpire: jest.fn(async () => 1),
+    };
+    getRedisClient.mockReturnValue(fakeRedis);
+    const mw = bulkRateLimit();
+
+    const a = withFiles('rc1', 2);
+    await mw(a.req, a.res, a.next);
+    expect(a.next).toHaveBeenCalledTimes(1);
+    expect(fakeRedis.incrby).toHaveBeenCalledWith('rl:bulk:rc1', 2);
+    expect(fakeRedis.pexpire).toHaveBeenCalledTimes(1); // lần đầu trong cửa sổ → set TTL
+
+    const b = withFiles('rc1', 2); // 2+2=4 > 3
+    await mw(b.req, b.res, b.next);
+    expect(b.res.status).toHaveBeenCalledWith(429);
+    expect(b.next).not.toHaveBeenCalled();
+  });
+
+  test('Redis lỗi → fail-open (next), không chặn request hợp lệ', async () => {
+    const fakeRedis = {
+      incrby: jest.fn(async () => { throw new Error('redis down'); }),
+      pexpire: jest.fn(),
+    };
+    getRedisClient.mockReturnValue(fakeRedis);
+    const mw = bulkRateLimit();
+    const a = withFiles('rc2', 5);
+    await mw(a.req, a.res, a.next);
+    expect(a.next).toHaveBeenCalledTimes(1);
+    expect(a.res.status).not.toHaveBeenCalled();
   });
 });

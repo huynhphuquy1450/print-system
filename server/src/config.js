@@ -69,6 +69,21 @@ const config = {
  backupHour: parseInt(optional('BACKUP_HOUR', '2'), 10),
  },
 
+ // Pluggable rate-limit store: set REDIS_URL → dùng Redis (counter chia sẻ giữa nhiều node).
+ // Không set → in-process MemoryStore (đủ single-server). Chỉ cần khi scale ngang.
+ redis: {
+ url: optional('REDIS_URL', null),
+ },
+
+ // Webhook outbound (HM4): allowlist domain ERP (opt-in). CSV host được phép; rỗng = tắt
+ // allowlist (vẫn luôn chặn IP nội bộ qua SSRF guard). Khớp exact host hoặc subdomain.
+ webhook: {
+ allowedHosts: optional('WEBHOOK_ALLOWED_HOSTS', '')
+ .split(',')
+ .map((s) => s.trim().toLowerCase())
+ .filter(Boolean),
+ },
+
  rateLimit: {
  // Per-IP login rate limit: chống brute force password
  authLoginPerMin: parseInt(optional('AUTH_LOGIN_RATE_PER_MIN', '5'), 10),
