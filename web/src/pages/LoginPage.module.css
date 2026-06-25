@@ -1,0 +1,47 @@
+/* Wrapper toàn trang — căn giữa theo cả hai trục */
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+  padding: var(--space-4);
+}
+
+/* Card đăng nhập — chiều rộng cố định, tự căn giữa */
+.card {
+  width: 100%;
+  max-width: 400px;
+}
+
+/* Tiêu đề */
+.title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-fg);
+  text-align: center;
+  margin-bottom: var(--space-5);
+}
+
+/* Form sắp xếp field theo cột, khoảng cách đều */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Banner lỗi inline */
+.error {
+  font-size: var(--font-size-sm);
+  color: var(--color-destructive);
+  background: rgba(220, 38, 38, 0.06);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+}
+
+/* Nút submit trải rộng toàn bộ chiều ngang */
+.submit {
+  width: 100%;
+  justify-content: center;
+}

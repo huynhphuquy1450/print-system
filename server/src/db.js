@@ -165,9 +165,14 @@ function buildStmt(name, sql) {
  });
  stmtWithKeys[name] = { order, pgSql };
 
- const orderParams = (params) => order.map((k) =>
- params == null ? null : params[k]
- );
+ const orderParams = (params) => {
+ // Statement 1 tham số: cho phép truyền primitive trực tiếp (vd get('cli_x')),
+ // tương thích call-site kiểu positional cũ bên cạnh kiểu named-object { id }.
+ if (order.length === 1 && (params == null || typeof params !== 'object')) {
+ return [params == null ? null : params];
+ }
+ return order.map((k) => (params == null ? null : params[k]));
+ };
 
  const run = async (params) => {
  const r = await pool.query(pgSql, orderParams(params));
@@ -299,9 +304,12 @@ function buildTxStmts(client) {
  const out = {};
  for (const [key] of Object.entries(stmts)) {
  const { order, pgSql } = stmtWithKeys[key];
- const orderParams = (params) => order.map((k) =>
- params == null ? null : params[k]
- );
+ const orderParams = (params) => {
+ if (order.length === 1 && (params == null || typeof params !== 'object')) {
+ return [params == null ? null : params];
+ }
+ return order.map((k) => (params == null ? null : params[k]));
+ };
  out[key] = {
  get: async (params) => {
  const r = await client.query(pgSql, orderParams(params));

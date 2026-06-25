@@ -1,0 +1,51 @@
+/* Layout chính của trang */
+.page {
+  padding: var(--space-4) var(--space-5);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Khoảng cách giữa các phần */
+.section {
+  margin-bottom: var(--space-5);
+}
+
+/* Spinner căn giữa khi đang tải lần đầu */
+.spinnerWrap {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-5) 0;
+}
+
+/* Hàng nút submit trong form tạo webhook */
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-3);
+}
+
+/* Hộp cảnh báo secret trong modal */
+.warningBox {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  border: 1px solid var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  color: var(--color-fg);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.warningBox svg {
+  flex-shrink: 0;
+  color: var(--color-warning);
+  margin-top: 1px;
+}
+
+/* Nút copy trong modal */
+.copyBtn {
+  margin-top: var(--space-2);
+}

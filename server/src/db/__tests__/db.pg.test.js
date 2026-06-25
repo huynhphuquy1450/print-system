@@ -59,6 +59,24 @@ describe('db.js (pg-mem integration)', () => {
  await pool.end();
  });
 
+ // Regression: statement 1 tham số phải nhận cả primitive (positional) lẫn { id }.
+ // Các service gọi get(clientId)/get(jobId) bằng string — nếu chỉ hỗ trợ object thì
+ // login & retry hỏng âm thầm (mọi unit test mock service nên không bắt được).
+ test('single-param get() accepts a bare string (positional) as well as { id }', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ await stmts.insertClient.run({
+ id: 'c_str', name: 'PosArg', secret_hash: 'hash', is_active: 1, created_at: Date.now(),
+ });
+ const byString = await stmts.getClientById.get('c_str');
+ const byObject = await stmts.getClientById.get({ id: 'c_str' });
+ expect(byString).not.toBeNull();
+ expect(byString.id).toBe('c_str');
+ expect(byObject).not.toBeNull();
+ expect(byObject.id).toBe('c_str');
+ await pool.end();
+ });
+
  test('named params with multiple @placeholders map to $N in order', async () => {
  const { db, stmts, pool } = freshDbModule();
  await db.initSchema();
