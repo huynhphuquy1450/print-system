@@ -35,4 +35,31 @@ function clientRateLimit(opts = {}) {
   });
 }
 
-module.exports = { clientRateLimit };
+// Item-weighted rate-limit cho bulk: giới hạn TỔNG số job/client/cửa-sổ (không phải số request),
+// chống 1 request bulk tạo nhiều job vượt hạn mức write (amplification). Đặt SAU multer (cần
+// req.files). Bộ đếm in-process (như MemoryStore ở trên) — đủ cho MVP single-server.
+const bulkBuckets = new Map(); // clientId -> { count, resetAt }
+
+function bulkRateLimit(opts = {}) {
+  const windowMs = opts.windowMs || 60 * 1000;
+  const max = opts.max !== undefined ? opts.max : config.rateLimit.clientWritePerMin;
+  return (req, res, next) => {
+    if (!req.client || !req.client.id) {
+      return next(new Error('bulkRateLimit requires verifyClient to run first (req.client.id missing)'));
+    }
+    const units = (req.files || []).length || 1;
+    const now = Date.now();
+    let b = bulkBuckets.get(req.client.id);
+    if (!b || now >= b.resetAt) {
+      b = { count: 0, resetAt: now + windowMs };
+      bulkBuckets.set(req.client.id, b);
+    }
+    if (b.count + units > max) {
+      return res.status(429).json({ error: 'Vượt hạn mức tạo job (bulk), thử lại sau' });
+    }
+    b.count += units;
+    next();
+  };
+}
+
+module.exports = { clientRateLimit, bulkRateLimit };

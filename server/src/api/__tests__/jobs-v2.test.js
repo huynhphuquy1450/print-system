@@ -8,6 +8,7 @@ jest.mock('../../middleware/auth', () => ({
 
 jest.mock('../../middleware/rate-limit-client', () => ({
   clientRateLimit: () => (req, _res, next) => next(),
+  bulkRateLimit: () => (req, _res, next) => next(),
 }));
 
 jest.mock('../../services/job-service', () => ({
@@ -38,6 +39,12 @@ describe('GET /api/v2/print-jobs (HM3)', () => {
     expect(res.status).toBe(200);
     const arg = jobService.listJobsFiltered.mock.calls[0][0];
     expect(arg).toMatchObject({ clientId: 'client_001', branchId: 'br_1', status: 'failed', from: 1000, to: 2000, limit: '10' });
+  });
+
+  test('from không phải số → 400, không gọi service', async () => {
+    const res = await request(app).get('/api/v2/print-jobs').query({ from: 'abc' });
+    expect(res.status).toBe(400);
+    expect(jobService.listJobsFiltered).not.toHaveBeenCalled();
   });
 });
 

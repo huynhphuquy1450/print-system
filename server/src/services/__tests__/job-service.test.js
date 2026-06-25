@@ -27,6 +27,7 @@ jest.mock('fs', () => ({
  ...jest.requireActual('fs'),
  mkdirSync: jest.fn(),
  writeFileSync: jest.fn(),
+ unlinkSync: jest.fn(),
  existsSync: jest.fn(),
  statSync: jest.fn(),
 }));
@@ -135,6 +136,19 @@ describe('job-service', () => {
  expect(pubPayload).not.toHaveProperty('pdf_base64');
 
  expect(stmts.markJobSent.run).toHaveBeenCalledTimes(1);
+ });
+
+ test('insertJob lỗi → xóa PDF orphan vừa ghi rồi ném lỗi', async () => {
+ stmts.insertJob.run.mockRejectedValueOnce(new Error('db insert failed'));
+ await expect(
+ createJob({ branchId: BRANCH, pdfBuffer: VALID_PDF_BUF, metadata: { user_id: 'EMP-1' }, clientId: 'client_001' })
+ ).rejects.toThrow(/db insert failed/);
+ // file đã ghi → phải được unlink để không rò rỉ
+ expect(fs.writeFileSync).toHaveBeenCalledTimes(1);
+ const writtenPath = fs.writeFileSync.mock.calls[0][0];
+ expect(fs.unlinkSync).toHaveBeenCalledWith(writtenPath);
+ // không publish khi insert đã hỏng
+ expect(mqttClient.publishJob).not.toHaveBeenCalled();
  });
 
  test('throws 400 if branchId missing', async () => {

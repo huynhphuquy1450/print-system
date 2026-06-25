@@ -47,6 +47,7 @@ async function createJob({ branchId, printer, pdfBuffer, metadata, clientId }) {
 
  // Insert DB (status=pending)
  const metadataJson = JSON.stringify(metadata || {});
+ try {
  await stmts.insertJob.run({
  id: jobId,
  branch_id: branchId,
@@ -56,6 +57,11 @@ async function createJob({ branchId, printer, pdfBuffer, metadata, clientId }) {
  client_id: clientId || null,
  created_at: Date.now(),
  });
+ } catch (e) {
+ // Insert lỗi → xóa PDF vừa ghi để không rò rỉ orphan file trên disk (bulk khuếch đại).
+ try { fs.unlinkSync(filePath); } catch (_) { /* ignore */ }
+ throw e;
+ }
 
  // Publish MQTT — chỉ metadata, agent sẽ tự GET /:id/file
  try {
