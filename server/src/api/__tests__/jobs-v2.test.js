@@ -13,6 +13,7 @@ jest.mock('../../middleware/rate-limit-client', () => ({
 jest.mock('../../services/job-service', () => ({
   listJobsFiltered: jest.fn(),
   retryJob: jest.fn(),
+  createJobsBulk: jest.fn(),
 }));
 
 const express = require('express');
@@ -54,5 +55,65 @@ describe('POST /api/v2/print-jobs/:id/retry (HM3)', () => {
     jobService.retryJob.mockRejectedValue(err);
     const res = await request(app).post('/api/v2/print-jobs/jX/retry');
     expect(res.status).toBe(410);
+  });
+});
+
+describe('POST /api/v2/print-jobs/bulk (HM7)', () => {
+  const PDF = Buffer.from('%PDF-1.4 x');
+
+  test('tất cả OK → 201, gọi createJobsBulk với items/files khớp', async () => {
+    jobService.createJobsBulk.mockResolvedValue({
+      created: [{ index: 0, job_id: 'j0' }, { index: 1, job_id: 'j1' }],
+      failed: [],
+    });
+    const items = [
+      { branch_id: 'br_1', metadata: { user_id: 'u1' } },
+      { branch_id: 'br_2', metadata: { user_id: 'u2' } },
+    ];
+    const res = await request(app)
+      .post('/api/v2/print-jobs/bulk')
+      .field('items', JSON.stringify(items))
+      .attach('pdf', PDF, { filename: 'a.pdf', contentType: 'application/pdf' })
+      .attach('pdf', PDF, { filename: 'b.pdf', contentType: 'application/pdf' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.created).toHaveLength(2);
+    const arg = jobService.createJobsBulk.mock.calls[0][0];
+    expect(arg.items).toHaveLength(2);
+    expect(arg.files).toHaveLength(2);
+    expect(arg.clientId).toBe('client_001');
+  });
+
+  test('có item lỗi → 207 (partial)', async () => {
+    jobService.createJobsBulk.mockResolvedValue({
+      created: [{ index: 0, job_id: 'j0' }],
+      failed: [{ index: 1, error: 'metadata.user_id is required' }],
+    });
+    const items = [{ branch_id: 'br_1', metadata: { user_id: 'u1' } }, { branch_id: 'br_2', metadata: {} }];
+    const res = await request(app)
+      .post('/api/v2/print-jobs/bulk')
+      .field('items', JSON.stringify(items))
+      .attach('pdf', PDF, { filename: 'a.pdf', contentType: 'application/pdf' })
+      .attach('pdf', PDF, { filename: 'b.pdf', contentType: 'application/pdf' });
+    expect(res.status).toBe(207);
+    expect(res.body.failed).toHaveLength(1);
+  });
+
+  test('số items ≠ số file → 400, không gọi service', async () => {
+    const items = [{ branch_id: 'br_1', metadata: { user_id: 'u1' } }];
+    const res = await request(app)
+      .post('/api/v2/print-jobs/bulk')
+      .field('items', JSON.stringify(items))
+      .attach('pdf', PDF, { filename: 'a.pdf', contentType: 'application/pdf' })
+      .attach('pdf', PDF, { filename: 'b.pdf', contentType: 'application/pdf' });
+    expect(res.status).toBe(400);
+    expect(jobService.createJobsBulk).not.toHaveBeenCalled();
+  });
+
+  test('không có file → 400', async () => {
+    const res = await request(app)
+      .post('/api/v2/print-jobs/bulk')
+      .field('items', '[]');
+    expect(res.status).toBe(400);
   });
 });

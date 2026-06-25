@@ -9,6 +9,7 @@ const { db, stmts } = require('../db');
 const mqttClient = require('../mqtt-client');
 const { validatePdf } = require('./pdf-validator');
 const webhookService = require('./webhook-service');
+const { requireMetadataUserId } = require('../middleware/validate');
 const { HttpError } = require('../errors');
 
 /**
@@ -166,6 +167,37 @@ async function retryJob(jobId) {
 }
 
 /**
+ * Bulk (HM7): tạo nhiều job trong 1 request. items[i] ứng với files[i] (mapping theo index).
+ * Thu lỗi per-item — 1 job hỏng KHÔNG làm fail cả lô. Tái dùng createJob (validate PDF,
+ * lưu file, MQTT publish). Mỗi item vẫn bắt buộc metadata.user_id.
+ * Returns: { created: [{index, branch_id, job_id}], failed: [{index, branch_id, error}] }
+ */
+async function createJobsBulk({ items, files, clientId }) {
+ const created = [];
+ const failed = [];
+ for (let i = 0; i < items.length; i++) {
+ const item = items[i] || {};
+ const file = files[i];
+ try {
+ if (!file) throw new HttpError(400, 'thiếu file PDF tương ứng cho item này');
+ const metaErr = requireMetadataUserId(item.metadata);
+ if (metaErr) throw new HttpError(400, metaErr);
+ const r = await createJob({
+ branchId: item.branch_id,
+ printer: item.printer || null,
+ pdfBuffer: file.buffer,
+ metadata: item.metadata,
+ clientId,
+ });
+ created.push({ index: i, branch_id: item.branch_id, job_id: r.job_id });
+ } catch (e) {
+ failed.push({ index: i, branch_id: item.branch_id, error: e.message });
+ }
+ }
+ return { created, failed };
+}
+
+/**
  * Agent callback: báo printed/failed
  * Validate: branch_id trong job phải khớp với agent's branch (chống replay)
  */
@@ -240,6 +272,7 @@ module.exports = {
  listAllJobs,
  listJobsFiltered,
  retryJob,
+ createJobsBulk,
  updateJobStatus,
  getJobFileForAgent,
 };
