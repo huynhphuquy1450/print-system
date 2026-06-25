@@ -245,4 +245,22 @@ describe('db.js (pg-mem integration)', () => {
  expect(r.rows[0].at).toBe(now); // BIGINT → number
  await pool.end();
  });
+
+ test('deleteOldAuditLogs xóa dòng cũ hơn cutoff, giữ dòng mới (HM5 retention)', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ const base = { actor_type: 'client', actor_id: 'c', user_id: null, action: 'x',
+ resource_type: null, resource_id: null, method: 'POST', path: '/x',
+ status_code: 200, ip: '1.1.1.1', user_agent: 'j' };
+ await stmts.insertAudit.run({ ...base, at: now - 1000 }); // cũ
+ await stmts.insertAudit.run({ ...base, at: now }); // mới
+
+ const res = await stmts.deleteOldAuditLogs.run({ cutoff: now - 500 });
+ expect(res.rowCount).toBe(1);
+ const remain = await db.query('SELECT * FROM audit_log');
+ expect(remain.rows).toHaveLength(1);
+ expect(remain.rows[0].at).toBe(now);
+ await pool.end();
+ });
 });

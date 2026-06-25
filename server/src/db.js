@@ -290,6 +290,7 @@ const stmts = {
  VALUES
  (@at, @actor_type, @actor_id, @user_id, @action, @resource_type, @resource_id, @method, @path, @status_code, @ip, @user_agent)
  `),
+ deleteOldAuditLogs: buildStmt('deleteOldAuditLogs', `DELETE FROM audit_log WHERE at < @cutoff`),
 };
 
 // Build a tx-bound statement set. Same shape as `stmts` but each call uses the
