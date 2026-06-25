@@ -38,3 +38,6 @@ Thumbs.db
 # Agent specific (Windows)
 agent/runtime/
 agent/downloads/
+
+# Local dev notes (KHÔNG commit — chỉ ghi chú cục bộ, có thể chứa đường dẫn nhạy cảm)
+.notes.local.md
