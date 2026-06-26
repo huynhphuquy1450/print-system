@@ -124,6 +124,21 @@ const SCHEMA_SQL = `
 
  CREATE INDEX IF NOT EXISTS idx_webhooks_client ON webhooks(client_id);
 
+ -- Cảnh báo (TASK 7): lịch sử edge-triggered khi branch/printer chuyển trạng thái đáng chú ý
+ -- (offline / out_of_paper / paper_jam / phục hồi online). Ghi audit + bắn webhook 'alert'.
+ CREATE TABLE IF NOT EXISTS alerts (
+ id SERIAL PRIMARY KEY,
+ client_id TEXT,
+ branch_id TEXT,
+ printer_id TEXT,
+ alert_type TEXT NOT NULL,
+ status TEXT,
+ created_at BIGINT NOT NULL
+ );
+
+ CREATE INDEX IF NOT EXISTS idx_alerts_client ON alerts(client_id);
+ CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at DESC);
+
  -- Partial UNIQUE: one client can't have two branches with the same name.
  -- Partial (WHERE client_id IS NOT NULL) so legacy NULL-client branches are unaffected.
  CREATE UNIQUE INDEX IF NOT EXISTS idx_branches_client_name
@@ -237,6 +252,7 @@ const stmts = {
  markOfflineBranches: buildStmt('markOfflineBranches', `
  UPDATE branches SET status = 'offline'
  WHERE status <> 'offline' AND last_seen_at IS NOT NULL AND last_seen_at < @cutoff
+ RETURNING id, client_id
  `),
 
  // Printers
@@ -263,10 +279,12 @@ const stmts = {
  UPDATE printers SET status = @status, last_seen_at = @last_seen_at
  WHERE branch_id = @branch_id AND name = @name
  `),
+ getPrinterByBranchAndName: buildStmt('getPrinterByBranchAndName', `SELECT * FROM printers WHERE branch_id = @branch_id AND name = @name`),
  // Cron offline detection (TASK 6): tương tự branches — hạ printer stale về 'offline'.
  markOfflinePrinters: buildStmt('markOfflinePrinters', `
  UPDATE printers SET status = 'offline'
  WHERE status <> 'offline' AND last_seen_at IS NOT NULL AND last_seen_at < @cutoff
+ RETURNING id, branch_id
  `),
 
  // Jobs
@@ -327,6 +345,12 @@ const stmts = {
  `),
  getWebhookById: buildStmt('getWebhookById', `SELECT * FROM webhooks WHERE id = @id`),
  deleteWebhook: buildStmt('deleteWebhook', `DELETE FROM webhooks WHERE id = @id AND client_id = @client_id`),
+
+ // Alerts (TASK 7)
+ insertAlert: buildStmt('insertAlert', `
+ INSERT INTO alerts (client_id, branch_id, printer_id, alert_type, status, created_at)
+ VALUES (@client_id, @branch_id, @printer_id, @alert_type, @status, @created_at)
+ `),
 
  // Audit log
  insertAudit: buildStmt('insertAudit', `
