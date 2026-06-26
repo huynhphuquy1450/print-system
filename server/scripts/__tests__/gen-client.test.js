@@ -32,8 +32,8 @@ describe('gen-client (createClient + writeInstallFile)', () => {
  });
 
  describe('createClient', () => {
- test('returns id, secret, name for new client', () => {
- const result = createClient('Acme Corp');
+ test('returns id, secret, name for new client', async () => {
+ const result = await createClient('Acme Corp');
  expect(result.name).toBe('Acme Corp');
  expect(result.id).toMatch(/^cli_[a-f0-9]+$/);
  expect(typeof result.secret).toBe('string');
@@ -47,12 +47,10 @@ describe('gen-client (createClient + writeInstallFile)', () => {
  expect(typeof args.created_at).toBe('number');
  });
 
- test('throws with code CLIENT_EXISTS if name already taken', () => {
+ test('throws with code CLIENT_EXISTS if name already taken', async () => {
  stmts.getClientByName.get.mockReturnValue({ id: 'cli_existing', name: 'Acme' });
- expect(() => createClient('Acme')).toThrow(/already exists/);
- try { createClient('Acme'); } catch (e) {
- expect(e.code).toBe('CLIENT_EXISTS');
- }
+ await expect(createClient('Acme')).rejects.toThrow(/already exists/);
+ await expect(createClient('Acme')).rejects.toMatchObject({ code: 'CLIENT_EXISTS' });
  });
  });
 
