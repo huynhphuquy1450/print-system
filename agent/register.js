@@ -114,6 +114,10 @@ async function register(installPath, deps = {}) {
  BRANCH_ID: branch_id,
  AGENT_TOKEN: agent_token,
  MQTT_TOPIC_PREFIX: topic_prefix,
+ // Hạ tầng dùng chung (MQTT_URL, MQTT_USER, MQTT_PASS, API_URL, SUMATRA_PATH...) nếu
+ // install.json mang theo khối agent_env → ghi luôn để .env đầy đủ, không phải sửa tay.
+ // install.json cũ (không có agent_env) → hành vi giữ nguyên như trước.
+ ...(install.agent_env || {}),
  };
  const newContent = updateEnvContent(envContent, updates);
 
