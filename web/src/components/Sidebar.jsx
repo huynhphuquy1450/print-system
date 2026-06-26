@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom';
-import { Printer, ScrollText, Upload, Webhook } from 'lucide-react';
+import { MonitorCheck, Printer, ScrollText, Upload, Webhook } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
 const NAV = [
   { to: '/jobs',     label: 'Print Jobs', icon: Printer },
+  { to: '/stations', label: 'Trạm in',   icon: MonitorCheck },
   { to: '/upload',   label: 'Upload',     icon: Upload },
   { to: '/audit',    label: 'Audit Log',  icon: ScrollText },
   { to: '/webhooks', label: 'Webhooks',   icon: Webhook },
