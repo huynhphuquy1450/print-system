@@ -749,4 +749,48 @@ describe('db.js (pg-mem integration)', () => {
  expect(r.rows[0].client_id).toBe('ghost_client');
  await pool.end();
  });
+
+ // ── client management stmts (feat/client-management) ──
+
+ test('updateClientActive: insert client → update is_active=0 → getClientById thấy 0', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({ id: 'cli_act', name: 'ActiveTest', secret_hash: 'h', is_active: 1, created_at: now });
+ await stmts.updateClientActive.run({ id: 'cli_act', is_active: 0 });
+ const row = await stmts.getClientById.get({ id: 'cli_act' });
+ expect(row).not.toBeNull();
+ expect(row.is_active).toBe(0);
+ await pool.end();
+ });
+
+ test('updateClientSecret: đổi secret_hash → getClientById thấy hash mới', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({ id: 'cli_sec', name: 'SecretTest', secret_hash: 'old_hash', is_active: 1, created_at: now });
+ await stmts.updateClientSecret.run({ id: 'cli_sec', secret_hash: 'new_hash' });
+ const row = await stmts.getClientById.get({ id: 'cli_sec' });
+ expect(row).not.toBeNull();
+ expect(row.secret_hash).toBe('new_hash');
+ await pool.end();
+ });
+
+ test('listClientsWithBranchCount: 1 client + 2 branches → branch_count=2; client khác 0 branch → 0', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({ id: 'cli_c1', name: 'WithBranches', secret_hash: 'h1', is_active: 1, created_at: now });
+ await stmts.insertClient.run({ id: 'cli_c2', name: 'NoBranches', secret_hash: 'h2', is_active: 1, created_at: now - 1 });
+ await stmts.insertBranch.run({ id: 'br_lc1', name: 'B1', location: null, client_id: 'cli_c1', agent_token_hash: 'tok_lc1', created_at: now });
+ await stmts.insertBranch.run({ id: 'br_lc2', name: 'B2', location: null, client_id: 'cli_c1', agent_token_hash: 'tok_lc2', created_at: now });
+ const rows = await stmts.listClientsWithBranchCount.all();
+ const c1 = rows.find((r) => r.id === 'cli_c1');
+ const c2 = rows.find((r) => r.id === 'cli_c2');
+ expect(c1).toBeDefined();
+ expect(Number(c1.branch_count)).toBe(2);
+ expect(c2).toBeDefined();
+ expect(Number(c2.branch_count)).toBe(0);
+ await pool.end();
+ });
 });

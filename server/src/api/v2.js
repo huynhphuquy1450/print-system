@@ -12,5 +12,6 @@ router.use('/audit-log', require('./audit'));
 router.use('/alerts', require('./alerts'));
 // HM4 — webhook ERP
 router.use('/webhooks', require('./webhooks'));
+router.use('/clients', require('./clients'));
 
 module.exports = router;
