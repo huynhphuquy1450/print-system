@@ -289,7 +289,7 @@ const stmts = {
  SELECT * FROM branches WHERE client_id = @client_id AND name = @name
  `),
  getBranchByTokenHash: buildStmt('getBranchByTokenHash', `SELECT * FROM branches WHERE agent_token_hash = @agent_token_hash`),
- listBranches: buildStmt('listBranches', `SELECT * FROM branches ORDER BY created_at DESC`),
+ listBranchesByClient: buildStmt('listBranchesByClient', `SELECT * FROM branches WHERE client_id = @client_id ORDER BY created_at DESC`),
  updateBranchToken: buildStmt('updateBranchToken', `
  UPDATE branches SET agent_token_hash = @agent_token_hash WHERE id = @id
  `),

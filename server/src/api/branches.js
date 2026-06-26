@@ -12,7 +12,7 @@ const { validate } = require('../middleware/validate');
  */
 router.get('/', verifyClient, async (req, res, next) => {
  try {
- const rows = await stmts.listBranches.all();
+ const rows = await stmts.listBranchesByClient.all({ client_id: req.client.id });
  const branches = rows.map((b) => ({
  id: b.id,
  name: b.name,
@@ -49,6 +49,7 @@ router.post(
  id,
  name,
  location: location || null,
+ client_id: req.client.id,
  agent_token_hash: tokenHash,
  created_at: Date.now(),
  });
@@ -78,6 +79,7 @@ router.get('/:id', verifyClient, async (req, res, next) => {
  try {
  const branch = await stmts.getBranchById.get(req.params.id);
  if (!branch) return res.status(404).json({ error: 'Branch not found' });
+ if (branch.client_id !== req.client.id) return res.status(403).json({ error: 'Không có quyền xem trạm này' });
  // Strip token hash
  delete branch.agent_token_hash;
  res.json(branch);
@@ -92,6 +94,7 @@ router.post('/:id/regen-token', verifyClient, async (req, res, next) => {
  try {
  const branch = await stmts.getBranchById.get(req.params.id);
  if (!branch) return res.status(404).json({ error: 'Branch not found' });
+ if (branch.client_id !== req.client.id) return res.status(403).json({ error: 'Không có quyền với trạm này' });
 
  // Audit: rotate agent token là sự kiện bảo mật — ghi rõ branch nào
  res.locals.audit = { action: 'branch.regen_token', resource_type: 'branch', resource_id: branch.id };

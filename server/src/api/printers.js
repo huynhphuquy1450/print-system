@@ -17,6 +17,9 @@ router.get('/', verifyClient, async (req, res, next) => {
  if (!branchId) {
  return res.status(400).json({ error: 'branch_id query param is required' });
  }
+ const branch = await stmts.getBranchById.get(branchId);
+ if (!branch) return res.status(404).json({ error: `Branch '${branchId}' not found` });
+ if (branch.client_id !== req.client.id) return res.status(403).json({ error: 'Không có quyền với máy in của trạm này' });
  const printers = await stmts.listPrintersByBranch.all(branchId);
  res.json({ printers });
  } catch (e) { next(e); }
@@ -40,6 +43,7 @@ router.post(
  // Check branch exists
  const branch = await stmts.getBranchById.get(branch_id);
  if (!branch) return res.status(404).json({ error: `Branch '${branch_id}' not found` });
+ if (branch.client_id !== req.client.id) return res.status(403).json({ error: 'Không có quyền với máy in của trạm này' });
 
  const id = req.body.id || `prn_${crypto.randomBytes(4).toString('hex')}`;
  const isDefault = req.body.is_default ? 1 : 0;
@@ -144,6 +148,8 @@ router.patch('/:id', verifyClient, async (req, res, next) => {
  try {
  const printer = await stmts.getPrinterById.get(req.params.id);
  if (!printer) return res.status(404).json({ error: 'Printer not found' });
+ const branch = await stmts.getBranchById.get(printer.branch_id);
+ if (!branch || branch.client_id !== req.client.id) return res.status(403).json({ error: 'Không có quyền với máy in của trạm này' });
 
  const { is_default, approved } = req.body || {};
 
@@ -181,6 +187,8 @@ router.delete('/:id', verifyClient, async (req, res, next) => {
  try {
  const printer = await stmts.getPrinterById.get(req.params.id);
  if (!printer) return res.status(404).json({ error: 'Printer not found' });
+ const branch = await stmts.getBranchById.get(printer.branch_id);
+ if (!branch || branch.client_id !== req.client.id) return res.status(403).json({ error: 'Không có quyền với máy in của trạm này' });
  await stmts.deletePrinter.run(req.params.id);
  res.json({ ok: true });
  } catch (e) { next(e); }
