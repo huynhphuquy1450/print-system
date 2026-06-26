@@ -124,6 +124,11 @@ export const bulkCreate = (formData) =>
 export const listAudit = (params) =>
   request('/api/v2/audit-log', { query: params });
 
+// ── Alerts ────────────────────────────────────────
+/** @param {{ alert_type?, branch_id?, from?, to?, limit?, offset? }} params */
+export const listAlerts = (params) =>
+  request('/api/v2/alerts', { query: params });
+
 // ── Webhooks ──────────────────────────────────────
 export const listWebhooks = () => request('/api/v2/webhooks');
 
@@ -149,6 +154,7 @@ const api = {
   createJob,
   bulkCreate,
   listAudit,
+  listAlerts,
   listWebhooks,
   createWebhook,
   deleteWebhook,
