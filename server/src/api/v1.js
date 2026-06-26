@@ -18,5 +18,6 @@ router.use('/branches', branchesRouter);
 router.use('/printers', printersRouter);
 router.use('/admin', adminRouter);
 router.use('/setup', setupRouter);
+router.use('/config', require('./config'));
 
 module.exports = router;

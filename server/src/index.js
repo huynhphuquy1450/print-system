@@ -9,6 +9,7 @@ const retryStale = require('./jobs/retry-stale');
 const cleanupFiles = require('./jobs/cleanup-files');
 const purgeAuditLog = require('./jobs/purge-audit-log');
 const backupDb = require('./jobs/backup-db');
+const markOffline = require('./jobs/mark-offline');
 const { db, pool } = require('./db');
 
 let server = null;
@@ -48,6 +49,7 @@ async function start() {
  cleanupFiles.start();
  purgeAuditLog.start();
  backupDb.start();
+ markOffline.start();
 
  logger.info('Print Service started successfully');
  } catch (e) {
@@ -67,6 +69,7 @@ async function shutdown(signal) {
  cleanupFiles.stop();
  purgeAuditLog.stop();
  backupDb.stop();
+ markOffline.stop();
 
  // Close HTTPS first (so any in-flight agent requests get a clean error
  // rather than a connection drop). Then HTTP.

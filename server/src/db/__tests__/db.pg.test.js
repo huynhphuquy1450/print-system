@@ -436,4 +436,63 @@ describe('db.js (pg-mem integration)', () => {
  .rejects.toMatchObject({ code: '23505' });
  await pool.end();
  });
+
+ // TASK 6: cron offline detection — chỉ flip branch đang online + last_seen_at quá cutoff;
+ // branch tươi giữ online; branch chưa từng kết nối (last_seen_at NULL) không đụng.
+ test('markOfflineBranches hạ branch stale, chừa branch tươi và branch chưa kết nối', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ // (i) stale online → phải offline
+ await stmts.insertBranch.run({
+ id: 'br_stale', name: 'Stale', location: null,
+ client_id: null, agent_token_hash: 'tok_s', created_at: now,
+ });
+ await stmts.updateBranchStatus.run({ status: 'online', last_seen_at: now - 200_000, id: 'br_stale' });
+ // (ii) fresh online → giữ online
+ await stmts.insertBranch.run({
+ id: 'br_fresh', name: 'Fresh', location: null,
+ client_id: null, agent_token_hash: 'tok_f', created_at: now,
+ });
+ await stmts.updateBranchStatus.run({ status: 'online', last_seen_at: now, id: 'br_fresh' });
+ // (iii) chưa kết nối (default offline, last_seen_at NULL) → không đụng
+ await stmts.insertBranch.run({
+ id: 'br_never', name: 'Never', location: null,
+ client_id: null, agent_token_hash: 'tok_n', created_at: now,
+ });
+
+ const res = await stmts.markOfflineBranches.run({ cutoff: now - 120_000 });
+ expect(res.rowCount).toBe(1);
+ expect((await stmts.getBranchById.get({ id: 'br_stale' })).status).toBe('offline');
+ expect((await stmts.getBranchById.get({ id: 'br_fresh' })).status).toBe('online');
+ expect((await stmts.getBranchById.get({ id: 'br_never' })).status).toBe('offline');
+ await pool.end();
+ });
+
+ // TASK 6: tương tự cho printers — printer đã 'offline' không được tính lại.
+ test('markOfflinePrinters hạ printer stale, chừa printer tươi và printer đã offline', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertBranch.run({
+ id: 'br_p', name: 'P Branch', location: null,
+ client_id: null, agent_token_hash: 'tok_p', created_at: now,
+ });
+ const mkPrinter = (id, name) => stmts.insertPrinter.run({
+ id, branch_id: 'br_p', name, is_default: 0, source: 'manual', approved: 1, created_at: now,
+ });
+ await mkPrinter('prn_stale', 'P-Stale');
+ await stmts.updatePrinterStatus.run({ status: 'online', last_seen_at: now - 200_000, branch_id: 'br_p', name: 'P-Stale' });
+ await mkPrinter('prn_fresh', 'P-Fresh');
+ await stmts.updatePrinterStatus.run({ status: 'online', last_seen_at: now, branch_id: 'br_p', name: 'P-Fresh' });
+ await mkPrinter('prn_off', 'P-Off');
+ await stmts.updatePrinterStatus.run({ status: 'offline', last_seen_at: now - 200_000, branch_id: 'br_p', name: 'P-Off' });
+
+ const res = await stmts.markOfflinePrinters.run({ cutoff: now - 120_000 });
+ expect(res.rowCount).toBe(1);
+ expect((await stmts.getPrinterById.get({ id: 'prn_stale' })).status).toBe('offline');
+ expect((await stmts.getPrinterById.get({ id: 'prn_fresh' })).status).toBe('online');
+ expect((await stmts.getPrinterById.get({ id: 'prn_off' })).status).toBe('offline');
+ await pool.end();
+ });
 });

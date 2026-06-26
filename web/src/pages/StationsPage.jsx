@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { listBranches, listPrinters, updateBranch } from '../api/client.js';
+import { listBranches, listPrinters, updateBranch, getConfig } from '../api/client.js';
 import { useToast } from '../ui/ToastContext.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import EmptyState from '../components/EmptyState.jsx';
@@ -9,10 +9,11 @@ import Modal from '../components/Modal.jsx';
 import Field from '../components/Field.jsx';
 import styles from './StationsPage.module.css';
 
-const FRESH_MS = 60_000;
+// Fallback nếu fetch /api/v1/config lỗi (server là nguồn sự thật cho ngưỡng tươi — TASK 8).
+const DEFAULT_FRESH_MS = 60_000;
 
-function isOnline(last_seen_at) {
-  return last_seen_at != null && Date.now() - last_seen_at < FRESH_MS;
+function isOnline(last_seen_at, freshMs) {
+  return last_seen_at != null && Date.now() - last_seen_at < freshMs;
 }
 
 function relativeTime(last_seen_at) {
@@ -24,9 +25,9 @@ function relativeTime(last_seen_at) {
   return `${Math.floor(diffMin / 60)} giờ trước`;
 }
 
-function effectivePrinterStatus(printer) {
+function effectivePrinterStatus(printer, freshMs) {
   if (printer.last_seen_at == null) return 'unknown';
-  if (!isOnline(printer.last_seen_at)) return 'offline';
+  if (!isOnline(printer.last_seen_at, freshMs)) return 'offline';
   return printer.status;
 }
 
@@ -34,6 +35,7 @@ export default function StationsPage() {
   const { toast } = useToast();
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [freshMs, setFreshMs] = useState(DEFAULT_FRESH_MS);
 
   // State cho modal đổi tên trạm
   const [editBranch, setEditBranch] = useState(null);
@@ -68,6 +70,13 @@ export default function StationsPage() {
     const id = setInterval(fetchAll, 12000);
     return () => clearInterval(id);
   }, [fetchAll]);
+
+  // Lấy ngưỡng tươi từ server (1 nguồn sự thật); giữ default nếu lỗi.
+  useEffect(() => {
+    getConfig()
+      .then((cfg) => setFreshMs(cfg?.presence?.freshMs ?? DEFAULT_FRESH_MS))
+      .catch(() => {});
+  }, []);
 
   function handleOpenEdit(branch) {
     setEditBranch(branch);
@@ -125,7 +134,7 @@ export default function StationsPage() {
             <div className={styles.cardHeader}>
               <div className={styles.cardTitle}>
                 <span className={styles.branchName}>{branch.name}</span>
-                <StatusBadge status={isOnline(branch.last_seen_at) ? 'online' : 'offline'} />
+                <StatusBadge status={isOnline(branch.last_seen_at, freshMs) ? 'online' : 'offline'} />
                 <button
                   className="btn btn-ghost"
                   onClick={() => handleOpenEdit(branch)}
@@ -150,7 +159,7 @@ export default function StationsPage() {
                   approvedPrinters.map((printer) => (
                     <div key={printer.id} className={styles.printerRow}>
                       <span className={styles.printerName}>{printer.name}</span>
-                      <StatusBadge status={effectivePrinterStatus(printer)} />
+                      <StatusBadge status={effectivePrinterStatus(printer, freshMs)} />
                     </div>
                   ))
                 );

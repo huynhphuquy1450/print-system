@@ -232,6 +232,12 @@ const stmts = {
  updateBranch: buildStmt('updateBranch', `
  UPDATE branches SET name = @name, location = @location WHERE id = @id
  `),
+ // Cron offline detection (TASK 6): hạ status='offline' khi last_seen_at quá hạn. Chỉ flip
+ // branch đang khác 'offline' và đã từng kết nối (NULL = chưa từng → giữ default 'offline').
+ markOfflineBranches: buildStmt('markOfflineBranches', `
+ UPDATE branches SET status = 'offline'
+ WHERE status <> 'offline' AND last_seen_at IS NOT NULL AND last_seen_at < @cutoff
+ `),
 
  // Printers
  insertPrinter: buildStmt('insertPrinter', `
@@ -256,6 +262,11 @@ const stmts = {
  updatePrinterStatus: buildStmt('updatePrinterStatus', `
  UPDATE printers SET status = @status, last_seen_at = @last_seen_at
  WHERE branch_id = @branch_id AND name = @name
+ `),
+ // Cron offline detection (TASK 6): tương tự branches — hạ printer stale về 'offline'.
+ markOfflinePrinters: buildStmt('markOfflinePrinters', `
+ UPDATE printers SET status = 'offline'
+ WHERE status <> 'offline' AND last_seen_at IS NOT NULL AND last_seen_at < @cutoff
  `),
 
  // Jobs
