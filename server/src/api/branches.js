@@ -111,4 +111,37 @@ router.post('/:id/regen-token', verifyClient, async (req, res, next) => {
  } catch (e) { next(e); }
 });
 
+/**
+ * PATCH /api/branches/:id (Client JWT) - đổi tên / location
+ * Chỉ client chủ branch mới được sửa. Body: { name?, location? }
+ */
+router.patch('/:id', verifyClient, validate({
+ name: { type: 'string', minLength: 1, maxLength: 100 },
+ location: { type: 'string' },
+}), async (req, res, next) => {
+ try {
+ const branch = await stmts.getBranchById.get(req.params.id);
+ if (!branch) return res.status(404).json({ error: 'Branch not found' });
+ if (branch.client_id !== req.client.id) {
+ return res.status(403).json({ error: 'Không có quyền sửa trạm này' });
+ }
+ if (req.body.name === undefined && req.body.location === undefined) {
+ return res.status(400).json({ error: 'Cần ít nhất name hoặc location' });
+ }
+ res.locals.audit = { action: 'branch.update', resource_type: 'branch', resource_id: branch.id };
+
+ const name = req.body.name !== undefined ? req.body.name : branch.name;
+ const location = req.body.location !== undefined ? req.body.location : branch.location;
+ try {
+ await stmts.updateBranch.run({ id: branch.id, name, location });
+ } catch (e) {
+ if (e.code === '23505') {
+ return res.status(409).json({ error: `Tên trạm '${name}' đã tồn tại trong client của bạn` });
+ }
+ throw e;
+ }
+ res.json({ id: branch.id, name, location });
+ } catch (e) { next(e); }
+});
+
 module.exports = router;

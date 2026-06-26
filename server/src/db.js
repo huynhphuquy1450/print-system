@@ -229,6 +229,9 @@ const stmts = {
  updateBranchStatus: buildStmt('updateBranchStatus', `
  UPDATE branches SET status = @status, last_seen_at = @last_seen_at WHERE id = @id
  `),
+ updateBranch: buildStmt('updateBranch', `
+ UPDATE branches SET name = @name, location = @location WHERE id = @id
+ `),
 
  // Printers
  insertPrinter: buildStmt('insertPrinter', `
