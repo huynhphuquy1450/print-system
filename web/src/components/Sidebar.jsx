@@ -5,6 +5,7 @@ import styles from './Sidebar.module.css';
 const NAV = [
   { to: '/jobs',     label: 'Print Jobs', icon: Printer },
   { to: '/stations', label: 'Trạm in',   icon: MonitorCheck },
+  { to: '/printers', label: 'Máy in',    icon: Printer },
   { to: '/upload',   label: 'Upload',     icon: Upload },
   { to: '/audit',    label: 'Audit Log',  icon: ScrollText },
   { to: '/webhooks', label: 'Webhooks',   icon: Webhook },
