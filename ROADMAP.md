@@ -22,7 +22,7 @@ Dự án Print System đang ở giai đoạn 1.5 (Team handoff). Hướng phát 
 - [x] Rate limit per-client (chống HQ spam) — đã có `middleware/rate-limit-client.js`
 
 ## Q1 2027 (Jan-Mar) — UX & INTEGRATION
-- [ ] Web UI cho HQ (xem job history, retry manual, filter theo branch/status)
+- [x] Web UI cho HQ (xem job history, retry manual, filter theo branch/status) — `web/` (Vite + React)
 - [ ] Webhook ERP (giảm polling, optional)
 - [ ] Audit log chi tiết (ai in gì, lúc nào, IP, user-agent)
 - [ ] API versioning (`/api/v2/` prefix)
