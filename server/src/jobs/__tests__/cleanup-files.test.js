@@ -2,10 +2,14 @@
 
 // Hoisted mocks. cleanup-files.js dùng:
 // - db.transaction(async (tx) => {...}) — wrap per-job audit + delete
-// → mock identity: async (fn) => fn({ stmts: { recordCleanup, deleteJobById } })
+// → mock identity: async (fn) => fn({ stmts: { archiveJobById, recordCleanup, deleteJobById } })
 // - stmts.findOldJobs.all(cutoff) — query jobs cũ
 // - services/cleanup-audit.record — ghi audit
 // - fs.existsSync, fs.statSync, fs.unlinkSync
+
+// Module-level fn để expose archiveJobById.run vào scope test (tên bắt đầu 'mock'
+// để jest-hoist cho phép tham chiếu bên trong factory của jest.mock).
+const mockArchiveJobByIdRun = jest.fn().mockResolvedValue({ rowCount: 1 });
 
 jest.mock('../../db', () => ({
  db: {
@@ -13,6 +17,7 @@ jest.mock('../../db', () => ({
  // Throw trong fn sẽ propagate lên caller (giả lập rollback).
  transaction: (fn) => fn({
  stmts: {
+ archiveJobById: { run: mockArchiveJobByIdRun },
  recordCleanup: { run: jest.fn().mockResolvedValue({ rowCount: 1 }) },
  deleteJobById: { run: jest.fn().mockResolvedValue({ rowCount: 1 }) },
  },
@@ -46,13 +51,17 @@ const { db, stmts } = require('../../db');
 
 // cleanup-files có module-level state `lastRunDate` → phải reset module
 // giữa các test để run() không skip do "đã chạy hôm nay".
-function loadFreshCleanupFiles() {
+function loadFreshCleanupFiles(configOverrides) {
  jest.resetModules();
+ const storageConfig = (configOverrides && configOverrides.storage)
+ ? configOverrides.storage
+ : { path: '/tmp/jest-storage', retentionDays: 7 };
  // Re-apply mocks cho module cache mới.
  jest.doMock('../../db', () => ({
  db: {
  transaction: (fn) => fn({
  stmts: {
+ archiveJobById: { run: mockArchiveJobByIdRun },
  recordCleanup: { run: jest.fn().mockResolvedValue({ rowCount: 1 }) },
  deleteJobById: { run: jest.fn().mockResolvedValue({ rowCount: 1 }) },
  },
@@ -73,7 +82,7 @@ function loadFreshCleanupFiles() {
  }));
  jest.doMock('../../config', () => ({
  ...jest.requireActual('../../config'),
- storage: { path: '/tmp/jest-storage', retentionDays: 7 },
+ storage: storageConfig,
  cron: { ...jest.requireActual('../../config').cron, cleanupHour: 3 },
  }));
  // eslint-disable-next-line global-require
@@ -82,6 +91,8 @@ function loadFreshCleanupFiles() {
 
 beforeEach(() => {
  jest.clearAllMocks();
+ // Restore mockResolvedValue cho module-level fn (clearAllMocks không xóa implementation).
+ mockArchiveJobByIdRun.mockResolvedValue({ rowCount: 1 });
  // Gate cleanupHour = 3; force getHours() trả 3 bất kể khi nào CI chạy.
  jest.spyOn(Date.prototype, 'getHours').mockReturnValue(3);
  fs.existsSync.mockReturnValue(true);
@@ -92,6 +103,7 @@ beforeEach(() => {
  // Re-wire the freshly-reset db.transaction to use current audit mock
  db.transaction = (fn) => fn({
  stmts: {
+ archiveJobById: { run: mockArchiveJobByIdRun },
  recordCleanup: { run: jest.fn().mockResolvedValue({ rowCount: 1 }) },
  deleteJobById: { run: jest.fn().mockResolvedValue({ rowCount: 1 }) },
  },
@@ -141,6 +153,26 @@ describe('cleanup-files run()', () => {
  expect(fs.unlinkSync).toHaveBeenCalledTimes(2);
  expect(fs.unlinkSync).toHaveBeenCalledWith('/s/job_1.pdf');
  expect(fs.unlinkSync).toHaveBeenCalledWith('/s/job_2.pdf');
+
+ // archiveJobById phải được gọi trước mỗi job (2 lần, mỗi lần đúng id + archived_at)
+ expect(mockArchiveJobByIdRun).toHaveBeenCalledTimes(2);
+ expect(mockArchiveJobByIdRun).toHaveBeenCalledWith(
+ expect.objectContaining({ id: 'job_1', archived_at: expect.any(Number) })
+ );
+ expect(mockArchiveJobByIdRun).toHaveBeenCalledWith(
+ expect.objectContaining({ id: 'job_2', archived_at: expect.any(Number) })
+ );
+ });
+
+ test('cờ tắt: storage.retentionDays=0 → return ngay, không query jobs', async () => {
+ const { run } = loadFreshCleanupFiles({ storage: { path: '/tmp/jest-storage', retentionDays: 0 } });
+
+ await run();
+
+ // Trả về sớm — findOldJobs.all không bao giờ được gọi
+ expect(stmts.findOldJobs.all).not.toHaveBeenCalled();
+ expect(audit.record).not.toHaveBeenCalled();
+ expect(mockArchiveJobByIdRun).not.toHaveBeenCalled();
  });
 
  test('file missing → reason=file-missing, audit still recorded', async () => {
@@ -184,6 +216,7 @@ describe('cleanup-files run()', () => {
  }
  return Promise.resolve(fn({
  stmts: {
+ archiveJobById: { run: jest.fn().mockResolvedValue({ rowCount: 1 }) },
  recordCleanup: { run: jest.fn().mockResolvedValue({ rowCount: 1 }) },
  deleteJobById: { run: jest.fn().mockResolvedValue({ rowCount: 1 }) },
  },
