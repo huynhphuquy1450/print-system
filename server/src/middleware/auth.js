@@ -3,6 +3,7 @@
 const { stmts } = require('../db');
 const { verifyClientJwt } = require('../services/auth-service');
 const { verifyAgentToken } = require('../services/token-service');
+const alertService = require('../services/alert-service');
 
 /**
  * Verify client JWT
@@ -48,13 +49,19 @@ function verifyAgent(req, res, next) {
  if (!ok) {
  return res.status(401).json({ error: 'Invalid agent token' });
  }
- req.agent = { branchId, branchName: branch.name };
+ // Phát hiện recovery: branch vừa được xác nhận online sau khi đã offline
+ const wasRecovered = branch.status === 'offline' && branch.last_seen_at != null;
+ req.agent = { branchId, branchName: branch.name, clientId: branch.client_id };
  // Update last_seen (best-effort; failure shouldn't block the request)
  stmts.updateBranchStatus.run({
  status: 'online',
  last_seen_at: Date.now(),
  id: branchId,
  }).catch(() => { /* ignore */ });
+ if (wasRecovered) {
+ // Branch vừa lên lại sau offline → bắn alert recovery, fire-and-forget
+ alertService.emit({ clientId: branch.client_id, branchId, alertType: 'branch.online', status: 'online' }).catch(() => {});
+ }
  next();
  } catch (e) {
  next(e);

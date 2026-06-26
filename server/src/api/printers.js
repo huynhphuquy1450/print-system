@@ -6,6 +6,7 @@ const router = express.Router();
 const { stmts, db } = require('../db');
 const { verifyClient, verifyAgent } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
+const alertService = require('../services/alert-service');
 
 /**
  * GET /api/printers?branch_id=X (Client JWT) - list printers of branch
@@ -98,6 +99,8 @@ router.post('/heartbeat', verifyAgent, async (req, res, next) => {
  if (typeof name !== 'string' || name.length === 0 || !VALID_STATUSES.has(status)) {
  continue;
  }
+ // Đọc trạng thái cũ trước khi update để phát hiện thay đổi cần alert
+ const before = await stmts.getPrinterByBranchAndName.get({ branch_id: req.agent.branchId, name });
  const now = Date.now();
  const result = await stmts.updatePrinterStatus.run({
  status,
@@ -107,6 +110,16 @@ router.post('/heartbeat', verifyAgent, async (req, res, next) => {
  });
  if (result.rowCount > 0) {
  updated += result.rowCount;
+ const oldStatus = before ? before.status : null;
+ if (oldStatus !== status) {
+ if (status === 'out_of_paper' || status === 'paper_jam') {
+ // Máy in gặp sự cố → bắn alert lỗi, fire-and-forget
+ alertService.emit({ clientId: req.agent.clientId, branchId: req.agent.branchId, printerId: before && before.id, alertType: 'printer.' + status, status }).catch(() => {});
+ } else if (status === 'online' && (oldStatus === 'offline' || oldStatus === 'out_of_paper' || oldStatus === 'paper_jam')) {
+ // Máy in phục hồi → bắn alert recovery
+ alertService.emit({ clientId: req.agent.clientId, branchId: req.agent.branchId, printerId: before && before.id, alertType: 'printer.online', status: 'online' }).catch(() => {});
+ }
+ }
  } else {
  await stmts.insertDiscoveredPrinter.run({
  id: `prn_${crypto.randomBytes(4).toString('hex')}`,

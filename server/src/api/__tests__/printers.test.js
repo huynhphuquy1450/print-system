@@ -1,10 +1,10 @@
 'use strict';
 
-// Tests cho POST /api/printers/heartbeat (verifyAgent).
-// Mock auth middleware + db để tránh kết nối PostgreSQL thật.
+// Tests cho POST /api/printers/heartbeat (verifyAgent) + alert wiring (TASK 7).
+// Mock auth middleware + db + alert-service để tránh kết nối PostgreSQL thật.
 
 const mockVerifyAgent = jest.fn((req, _res, next) => {
- req.agent = { branchId: 'br_001', branchName: 'Test Branch' };
+ req.agent = { branchId: 'br_001', branchName: 'Test Branch', clientId: 'cl_001' };
  next();
 });
 
@@ -20,6 +20,7 @@ const mockSetPrinterDefault = jest.fn();
 const mockGetPrinterById = jest.fn();
 const mockListPrintersByBranch = jest.fn();
 const mockDbQuery = jest.fn();
+const mockGetPrinterByBranchAndName = jest.fn();
 
 jest.mock('../../db', () => ({
  stmts: {
@@ -32,8 +33,15 @@ jest.mock('../../db', () => ({
  insertDiscoveredPrinter: { run: mockInsertDiscoveredPrinter },
  setPrinterApproved: { run: mockSetPrinterApproved },
  setPrinterDefault: { run: mockSetPrinterDefault },
+ getPrinterByBranchAndName: { get: mockGetPrinterByBranchAndName },
  },
  db: { query: mockDbQuery },
+}));
+
+// Mock alert-service để kiểm soát alert wiring (TASK 7)
+const mockAlertEmit = jest.fn().mockResolvedValue(undefined);
+jest.mock('../../services/alert-service', () => ({
+ emit: (...args) => mockAlertEmit(...args),
 }));
 
 const express = require('express');
@@ -48,9 +56,12 @@ app.use((err, req, res, _next) => res.status(err.status || 500).json({ error: er
 beforeEach(() => {
  jest.clearAllMocks();
  mockVerifyAgent.mockImplementation((req, _res, next) => {
- req.agent = { branchId: 'br_001', branchName: 'Test Branch' };
+ req.agent = { branchId: 'br_001', branchName: 'Test Branch', clientId: 'cl_001' };
  next();
  });
+ // Mặc định: máy in chưa tồn tại trong DB (sẽ bị bắt qua insertDiscoveredPrinter nếu rowCount=0)
+ mockGetPrinterByBranchAndName.mockResolvedValue(null);
+ mockAlertEmit.mockResolvedValue(undefined);
 });
 
 describe('POST /api/printers/heartbeat', () => {
@@ -212,5 +223,101 @@ describe('POST /api/printers (manual)', () => {
  expect(res.body.source).toBe('manual');
  expect(res.body.approved).toBe(1);
  expect(res.body.name).toBe('Manual-Printer');
+ });
+});
+
+describe('POST /api/printers/heartbeat – alert wiring (TASK 7)', () => {
+ test('printer online → out_of_paper: emit gọi 1 lần với alertType printer.out_of_paper', async () => {
+ // Trạng thái cũ: online
+ mockGetPrinterByBranchAndName.mockResolvedValue({ id: 'prn_001', status: 'online' });
+ mockRunFn.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'HP-001', status: 'out_of_paper' }] });
+
+ expect(res.status).toBe(200);
+ expect(res.body).toEqual({ ok: true, updated: 1, discovered: 0 });
+ expect(mockAlertEmit).toHaveBeenCalledTimes(1);
+ expect(mockAlertEmit).toHaveBeenCalledWith({
+ clientId: 'cl_001',
+ branchId: 'br_001',
+ printerId: 'prn_001',
+ alertType: 'printer.out_of_paper',
+ status: 'out_of_paper',
+ });
+ });
+
+ test('printer out_of_paper → out_of_paper (status không đổi): emit KHÔNG gọi', async () => {
+ // Trạng thái cũ đã là out_of_paper → không phát alert trùng
+ mockGetPrinterByBranchAndName.mockResolvedValue({ id: 'prn_001', status: 'out_of_paper' });
+ mockRunFn.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'HP-001', status: 'out_of_paper' }] });
+
+ expect(res.status).toBe(200);
+ expect(mockAlertEmit).not.toHaveBeenCalled();
+ });
+
+ test('printer offline → online (recovery): emit gọi alertType printer.online', async () => {
+ // Trạng thái cũ: offline → đây là recovery
+ mockGetPrinterByBranchAndName.mockResolvedValue({ id: 'prn_001', status: 'offline' });
+ mockRunFn.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'HP-001', status: 'online' }] });
+
+ expect(res.status).toBe(200);
+ expect(mockAlertEmit).toHaveBeenCalledTimes(1);
+ expect(mockAlertEmit).toHaveBeenCalledWith({
+ clientId: 'cl_001',
+ branchId: 'br_001',
+ printerId: 'prn_001',
+ alertType: 'printer.online',
+ status: 'online',
+ });
+ });
+
+ test('printer out_of_paper → online (recovery từ lỗi giấy): emit printer.online', async () => {
+ mockGetPrinterByBranchAndName.mockResolvedValue({ id: 'prn_002', status: 'out_of_paper' });
+ mockRunFn.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'HP-002', status: 'online' }] });
+
+ expect(res.status).toBe(200);
+ expect(mockAlertEmit).toHaveBeenCalledWith(expect.objectContaining({
+ alertType: 'printer.online',
+ printerId: 'prn_002',
+ }));
+ });
+
+ test('printer mới phát hiện (insertDiscoveredPrinter) → emit KHÔNG gọi', async () => {
+ // Trường hợp printer chưa có trong DB (rowCount=0 → insertDiscoveredPrinter)
+ mockGetPrinterByBranchAndName.mockResolvedValue(null);
+ mockRunFn.mockResolvedValue({ rowCount: 0 });
+ mockInsertDiscoveredPrinter.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'new-printer', status: 'online' }] });
+
+ expect(res.status).toBe(200);
+ expect(res.body).toEqual({ ok: true, updated: 0, discovered: 1 });
+ expect(mockAlertEmit).not.toHaveBeenCalled();
  });
 });
