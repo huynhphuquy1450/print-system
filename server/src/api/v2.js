@@ -9,6 +9,7 @@ const router = express.Router();
 // HM3 — job history/filter/retry + đọc audit log
 router.use('/print-jobs', require('./jobs-v2'));
 router.use('/audit-log', require('./audit'));
+router.use('/alerts', require('./alerts'));
 // HM4 — webhook ERP
 router.use('/webhooks', require('./webhooks'));
 

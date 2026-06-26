@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { MonitorCheck, Printer, ScrollText, Upload, Webhook } from 'lucide-react';
+import { AlertTriangle, MonitorCheck, Printer, ScrollText, Upload, Webhook } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
 const NAV = [
@@ -9,6 +9,7 @@ const NAV = [
   { to: '/upload',   label: 'Upload',     icon: Upload },
   { to: '/audit',    label: 'Audit Log',  icon: ScrollText },
   { to: '/webhooks', label: 'Webhooks',   icon: Webhook },
+  { to: '/alerts',   label: 'Cảnh báo',  icon: AlertTriangle },
 ];
 
 export default function Sidebar() {

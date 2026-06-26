@@ -1,0 +1,44 @@
+/* Layout chính của trang */
+.page {
+  padding: var(--space-4) var(--space-5);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Hàng tiêu đề: tên trang bên trái, tổng số bên phải */
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.header h1 {
+  margin: 0;
+}
+
+.total {
+  font-size: 0.875rem;
+  color: var(--color-muted-fg);
+}
+
+/* Spinner căn giữa khi đang tải lần đầu */
+.spinnerWrap {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-5) 0;
+}
+
+/* Badge loại cảnh báo: chấm màu + nhãn */
+.typeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.typeDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
