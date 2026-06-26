@@ -54,4 +54,10 @@ async function list({ clientId, alertType, branchId, from, to, limit = 50, offse
   return { alerts: rows.rows, total, limit: lim, offset: off };
 }
 
-module.exports = { emit, list };
+async function remove({ id, clientId }) {
+  if (!clientId) throw new Error('remove() requires clientId for tenant scoping');
+  const r = await stmts.deleteAlertForClient.run({ id, client_id: clientId });
+  return r.rowCount; // 0 = không tồn tại hoặc không thuộc tenant
+}
+
+module.exports = { emit, list, remove };

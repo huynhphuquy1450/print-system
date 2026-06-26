@@ -5,7 +5,7 @@ jest.mock('../../middleware/auth', () => ({
   verifyClient: (req, _res, next) => { req.client = { id: 'cl_1' }; next(); },
   verifyAgent: (req, _res, next) => next(),
 }));
-jest.mock('../../services/alert-service', () => ({ list: jest.fn() }));
+jest.mock('../../services/alert-service', () => ({ list: jest.fn(), remove: jest.fn() }));
 
 const express = require('express');
 const request = require('supertest');
@@ -63,5 +63,21 @@ describe('GET /api/v2/alerts', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ alerts: [], total: 0, limit: 50, offset: 0 });
     expect(alertService.list.mock.calls[0][0]).toMatchObject({ clientId: 'cl_1' });
+  });
+});
+
+describe('DELETE /api/v2/alerts/:id', () => {
+  test('DELETE trả 204 khi xóa được', async () => {
+    alertService.remove.mockResolvedValue(1);
+    const res = await request(app).delete('/api/v2/alerts/123');
+    expect(res.status).toBe(204);
+    expect(alertService.remove).toHaveBeenCalledWith({ id: '123', clientId: 'cl_1' });
+  });
+
+  test('DELETE trả 404 khi alert không thuộc tenant / không tồn tại', async () => {
+    alertService.remove.mockResolvedValue(0);
+    const res = await request(app).delete('/api/v2/alerts/123');
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBeTruthy();
   });
 });

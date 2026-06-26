@@ -186,3 +186,45 @@ describe('alertService.list() (pg-mem integration)', () => {
     await pool.end();
   });
 });
+
+describe('alertService.remove() (pg-mem integration)', () => {
+  test('remove() ném lỗi nếu thiếu clientId', async () => {
+    const { dbModule, serviceModule } = freshModules();
+    await dbModule.db.initSchema();
+    await expect(serviceModule.remove({ id: 1 })).rejects.toThrow('remove() requires clientId for tenant scoping');
+    await dbModule.pool.end();
+  });
+
+  test('xóa được alert thuộc tenant (qua branch); không xóa được của client khác', async () => {
+    const { dbModule, serviceModule } = freshModules();
+    const { db, stmts, pool } = dbModule;
+    await db.initSchema();
+    const now = Date.now();
+
+    await stmts.insertClient.run({ id: 'cli_a', name: 'Client A', secret_hash: 'ha', is_active: 1, created_at: now });
+    await stmts.insertClient.run({ id: 'cli_b', name: 'Client B', secret_hash: 'hb', is_active: 1, created_at: now });
+    await stmts.insertBranch.run({ id: 'br_a', name: 'Branch A', location: null, client_id: 'cli_a', agent_token_hash: 'tok_a', created_at: now });
+    await stmts.insertBranch.run({ id: 'br_b', name: 'Branch B', location: null, client_id: 'cli_b', agent_token_hash: 'tok_b', created_at: now });
+
+    // Alert của cli_a qua branch (client_id null) + alert của cli_b
+    await stmts.insertAlert.run({ client_id: null, branch_id: 'br_a', printer_id: null, alert_type: 'branch_offline', status: 'offline', created_at: now });
+    await stmts.insertAlert.run({ client_id: 'cli_b', branch_id: 'br_b', printer_id: null, alert_type: 'branch_offline', status: 'offline', created_at: now });
+
+    const all = await db.query('SELECT id, branch_id FROM alerts ORDER BY id');
+    const idA = all.rows.find((r) => r.branch_id === 'br_a').id;
+    const idB = all.rows.find((r) => r.branch_id === 'br_b').id;
+
+    // cli_a KHÔNG xóa được alert của cli_b
+    expect(await serviceModule.remove({ id: idB, clientId: 'cli_a' })).toBe(0);
+    // cli_a xóa được alert của chính mình (qua branch)
+    expect(await serviceModule.remove({ id: idA, clientId: 'cli_a' })).toBe(1);
+    // id không tồn tại → 0
+    expect(await serviceModule.remove({ id: idA, clientId: 'cli_a' })).toBe(0);
+
+    const remain = await db.query('SELECT id FROM alerts');
+    expect(remain.rows).toHaveLength(1);
+    expect(remain.rows[0].id).toBe(idB);
+
+    await pool.end();
+  });
+});
