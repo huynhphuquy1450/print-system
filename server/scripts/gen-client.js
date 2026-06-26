@@ -35,8 +35,8 @@ const config = require('../src/config');
  * Throw nếu tên đã tồn tại.
  * Pure function — không touch console hay filesystem.
  */
-function createClient(name) {
- const existing = stmts.getClientByName.get(name);
+async function createClient(name) {
+ const existing = await stmts.getClientByName.get(name);
  if (existing) {
  const err = new Error(`Client '${name}' already exists (id=${existing.id}).`);
  err.code = 'CLIENT_EXISTS';
@@ -47,7 +47,7 @@ function createClient(name) {
  const secret = crypto.randomBytes(32).toString('base64url');
  const secretHash = bcrypt.hashSync(secret, 10);
 
- stmts.insertClient.run({
+ await stmts.insertClient.run({
  id,
  name,
  secret_hash: secretHash,
@@ -73,6 +73,7 @@ module.exports = { createClient, writeInstallFile };
 
 // CLI mode
 if (require.main === module) {
+ (async () => {
  const name = process.argv[2];
  if (!name) {
  console.error('Usage: node scripts/gen-client.js <client-name>');
@@ -82,7 +83,7 @@ if (require.main === module) {
 
  let result;
  try {
- result = createClient(name);
+ result = await createClient(name);
  } catch (e) {
  console.error(e.message);
  console.error('Use a different name or delete from DB manually.');
@@ -123,4 +124,6 @@ if (require.main === module) {
  console.log('Hoặc ghi install file: OUTPUT_FILE=path/to.json node scripts/gen-client.js <name>');
  console.log('===================\n');
  }
+ process.exit(0);
+ })();
 }
