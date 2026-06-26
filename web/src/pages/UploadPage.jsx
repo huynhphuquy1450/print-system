@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { X } from 'lucide-react';
 import { listBranches, createJob, bulkCreate } from '../api/client.js';
 import { useToast } from '../ui/ToastContext.jsx';
 import Field from '../components/Field.jsx';
@@ -96,19 +97,46 @@ export default function UploadPage() {
   const [bulkResult, setBulkResult] = useState(null);
   const [fileError, setFileError] = useState('');
 
-  // Xử lý chọn nhiều file
+  // Xử lý chọn nhiều file — CỘNG DỒN qua nhiều lần chọn (không ghi đè đợt trước),
+  // loại trùng theo tên+kích thước, giới hạn tối đa 20 file.
   function handleBulkFileChange(e) {
     const chosen = Array.from(e.target.files);
-    if (chosen.length > 20) {
-      setFileError('Chỉ được chọn tối đa 20 file');
-      setFiles([]);
-      setItems([]);
-      e.target.value = '';
-      return;
+    // Reset value để chọn lại cùng file vẫn kích hoạt onChange ở lần sau.
+    e.target.value = '';
+    if (chosen.length === 0) return;
+
+    const keyOf = (f) => `${f.name}:${f.size}`;
+    const existing = new Set(files.map(keyOf));
+    const toAdd = chosen.filter((f) => !existing.has(keyOf(f)));
+
+    let mergedFiles = [...files, ...toAdd];
+    let mergedItems = [...items, ...toAdd.map(() => ({ branchId: '', printer: '', userId: '' }))];
+
+    if (mergedFiles.length > 20) {
+      setFileError(`Tối đa 20 file — đã bỏ bớt ${mergedFiles.length - 20} file vượt quá`);
+      mergedFiles = mergedFiles.slice(0, 20);
+      mergedItems = mergedItems.slice(0, 20);
+    } else {
+      setFileError('');
     }
+
+    setFiles(mergedFiles);
+    setItems(mergedItems);
+  }
+
+  // Xoá 1 file khỏi danh sách (cùng item tương ứng theo index)
+  function removeFile(index) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+    setItems((prev) => prev.filter((_, i) => i !== index));
     setFileError('');
-    setFiles(chosen);
-    setItems(chosen.map(() => ({ branchId: '', printer: '', userId: '' })));
+  }
+
+  // Xoá hết danh sách file đã chọn
+  function clearFiles() {
+    setFiles([]);
+    setItems([]);
+    setFileError('');
+    setBulkResult(null);
   }
 
   // Cập nhật một trường của item theo index
@@ -293,6 +321,7 @@ export default function UploadPage() {
               htmlFor="bulk-files"
               required
               error={fileError}
+              hint="Có thể chọn nhiều lần — file sẽ được cộng dồn (trùng tên+kích thước sẽ bỏ qua)"
             >
               <input
                 id="bulk-files"
@@ -305,22 +334,30 @@ export default function UploadPage() {
 
             {/* Bảng thông tin từng file */}
             {files.length > 0 && (
-              <div className={`table-wrapper ${styles.bulkTable}`}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Tên file</th>
-                      <th>Chi nhánh *</th>
-                      <th>Printer</th>
-                      <th>User ID *</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {files.map((f, i) => (
-                      <tr key={i}>
-                        <td className={styles.numCell}>{i + 1}</td>
-                        <td className={styles.nameCell}>{f.name}</td>
+              <>
+                <div className={styles.bulkToolbar}>
+                  <span>Đã chọn {files.length}/20 file</span>
+                  <button type="button" className="btn btn-ghost" onClick={clearFiles}>
+                    Xoá hết
+                  </button>
+                </div>
+                <div className={`table-wrapper ${styles.bulkTable}`}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Tên file</th>
+                        <th>Chi nhánh *</th>
+                        <th>Printer</th>
+                        <th>User ID *</th>
+                        <th aria-label="Xoá"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {files.map((f, i) => (
+                        <tr key={`${f.name}:${f.size}`}>
+                          <td className={styles.numCell}>{i + 1}</td>
+                          <td className={styles.nameCell}>{f.name}</td>
                         <td>
                           <select
                             value={items[i]?.branchId || ''}
@@ -353,11 +390,23 @@ export default function UploadPage() {
                             aria-label={`User ID cho file ${f.name}`}
                           />
                         </td>
+                        <td>
+                          <button
+                            type="button"
+                            className={styles.removeBtn}
+                            onClick={() => removeFile(i)}
+                            aria-label={`Xoá file ${f.name}`}
+                            title="Xoá file này"
+                          >
+                            <X size={16} />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              </div>
+                </div>
+              </>
             )}
 
             <div className={styles.actions}>
