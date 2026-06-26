@@ -177,4 +177,31 @@ async function dispatch({ clientId, jobId, status, branchId, metadata }) {
   }
 }
 
-module.exports = { sign, eventsMatch, deliver, dispatch, isPrivateIp, validateWebhookUrl, assertPublicUrl };
+/**
+ * Phát cảnh báo (TASK 7) tới mọi webhook active của client có đăng ký event 'alert'.
+ * Fire-and-forget giống dispatch. payload mang alert_type + printer_id thay cho job_id.
+ */
+async function dispatchAlert({ clientId, alertType, branchId, printerId, status, metadata }) {
+  try {
+    if (!clientId) return;
+    const event = 'alert';
+    const hooks = await stmts.listActiveWebhooksByClient.all({ client_id: clientId });
+    for (const h of hooks.filter((h) => eventsMatch(h.events, event))) {
+      const payload = {
+        event,
+        delivery_id: crypto.randomUUID(),
+        alert_type: alertType,
+        branch_id: branchId,
+        printer_id: printerId || null,
+        status,
+        metadata: metadata || {},
+        at: Date.now(),
+      };
+      deliver(h, payload).catch(() => {});
+    }
+  } catch (e) {
+    logger.error('Webhook alert dispatch error', { err: e.message });
+  }
+}
+
+module.exports = { sign, eventsMatch, deliver, dispatch, dispatchAlert, isPrivateIp, validateWebhookUrl, assertPublicUrl };
