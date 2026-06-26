@@ -398,4 +398,42 @@ describe('db.js (pg-mem integration)', () => {
  expect(after.is_default).toBe(1);
  await pool.end();
  });
+
+ test('updateBranch đổi name + location, getBranchById phản ánh giá trị mới', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({
+ id: 'c1', name: 'Acme', secret_hash: 'h', is_active: 1, created_at: now,
+ });
+ await stmts.insertBranch.run({
+ id: 'br_001', name: 'Branch 1', location: 'HCM',
+ client_id: 'c1', agent_token_hash: 'tok_upd1', created_at: now,
+ });
+ await stmts.updateBranch.run({ id: 'br_001', name: 'Branch X', location: 'HN' });
+ const row = await stmts.getBranchById.get({ id: 'br_001' });
+ expect(row.name).toBe('Branch X');
+ expect(row.location).toBe('HN');
+ await pool.end();
+ });
+
+ test('updateBranch sang tên trùng trong cùng client → 23505', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({
+ id: 'c1', name: 'Acme', secret_hash: 'h', is_active: 1, created_at: now,
+ });
+ await stmts.insertBranch.run({
+ id: 'br_001', name: 'A', location: null,
+ client_id: 'c1', agent_token_hash: 'tok_a', created_at: now,
+ });
+ await stmts.insertBranch.run({
+ id: 'br_002', name: 'B', location: null,
+ client_id: 'c1', agent_token_hash: 'tok_b', created_at: now,
+ });
+ await expect(stmts.updateBranch.run({ id: 'br_002', name: 'A', location: null }))
+ .rejects.toMatchObject({ code: '23505' });
+ await pool.end();
+ });
 });

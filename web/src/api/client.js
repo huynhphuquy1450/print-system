@@ -84,6 +84,9 @@ export const me = () => request('/api/auth/me');
 // ── Branches ──────────────────────────────────────
 export const listBranches = () => request('/api/v1/branches');
 
+export const updateBranch = (id, body) =>
+  request(`/api/v1/branches/${id}`, { method: 'PATCH', body });
+
 // ── Printers ──────────────────────────────────────
 export const listPrinters = (branchId) =>
   request('/api/printers', { query: { branch_id: branchId } });
@@ -132,6 +135,7 @@ const api = {
   login,
   me,
   listBranches,
+  updateBranch,
   listPrinters,
   createPrinter,
   updatePrinter,
