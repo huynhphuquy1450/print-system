@@ -4,7 +4,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const { stmts, db } = require('../db');
-const { verifyClient } = require('../middleware/auth');
+const { verifyClient, verifyAgent } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 
 /**
@@ -76,6 +76,36 @@ router.post(
  } catch (e) { next(e); }
  }
 );
+
+const VALID_STATUSES = new Set(['online', 'out_of_paper', 'paper_jam', 'offline', 'unknown']);
+
+/**
+ * POST /api/printers/heartbeat (Agent token) - cập nhật trạng thái máy in từ agent
+ * Body: { printers: [ { name: string, status: enum } ] }
+ */
+router.post('/heartbeat', verifyAgent, async (req, res, next) => {
+ try {
+ const { printers } = req.body || {};
+ if (!Array.isArray(printers)) {
+ return res.status(400).json({ error: 'printers must be an array' });
+ }
+ let updated = 0;
+ for (const item of printers) {
+ const { name, status } = item || {};
+ if (typeof name !== 'string' || name.length === 0 || !VALID_STATUSES.has(status)) {
+ continue;
+ }
+ const result = await stmts.updatePrinterStatus.run({
+ status,
+ last_seen_at: Date.now(),
+ branch_id: req.agent.branchId,
+ name,
+ });
+ updated += result.rowCount;
+ }
+ res.json({ ok: true, updated });
+ } catch (e) { next(e); }
+});
 
 /**
  * DELETE /api/printers/:id (Client JWT)

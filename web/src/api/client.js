@@ -84,6 +84,10 @@ export const me = () => request('/api/auth/me');
 // ── Branches ──────────────────────────────────────
 export const listBranches = () => request('/api/v1/branches');
 
+// ── Printers ──────────────────────────────────────
+export const listPrinters = (branchId) =>
+  request('/api/printers', { query: { branch_id: branchId } });
+
 // ── Print Jobs ────────────────────────────────────
 /** @param {{ branch_id?, status?, from?, to?, limit?, offset? }} params */
 export const listJobs = (params) =>
@@ -119,6 +123,7 @@ const api = {
   login,
   me,
   listBranches,
+  listPrinters,
   listJobs,
   retryJob,
   createJob,

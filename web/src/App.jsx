@@ -6,6 +6,7 @@ import JobsPage from './pages/JobsPage.jsx';
 import UploadPage from './pages/UploadPage.jsx';
 import AuditPage from './pages/AuditPage.jsx';
 import WebhooksPage from './pages/WebhooksPage.jsx';
+import StationsPage from './pages/StationsPage.jsx';
 
 function RootRedirect() {
   const { isAuthed } = useAuth();
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/upload"   element={<UploadPage />} />
         <Route path="/audit"    element={<AuditPage />} />
         <Route path="/webhooks" element={<WebhooksPage />} />
+        <Route path="/stations" element={<StationsPage />} />
       </Route>
 
       <Route path="*" element={<RootRedirect />} />

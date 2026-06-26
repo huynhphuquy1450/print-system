@@ -355,6 +355,108 @@ async function fetchPending() {
  }
 }
 
+// Probe trạng thái máy in Windows qua PowerShell/WMI.
+// Fail mềm trên Linux (ENOENT powershell) hoặc khi gặp lỗi bất kỳ → trả [].
+async function probePrinters() {
+  return new Promise((resolve) => {
+    let proc;
+    try {
+      proc = spawn('powershell', [
+        '-NoProfile',
+        '-Command',
+        'Get-CimInstance Win32_Printer | Select-Object Name,DetectedErrorState,WorkOffline | ConvertTo-Json -Compress',
+      ], { windowsHide: true });
+    } catch (e) {
+      // ENOENT trên Linux — bình thường, không phải lỗi thật
+      log('warn', 'probePrinters: không thể spawn powershell', { err: e.message });
+      return resolve([]);
+    }
+
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+
+    // Timeout 15s phòng powershell treo
+    const timer = setTimeout(() => {
+      try { proc.kill('SIGKILL'); } catch (e) {}
+      log('warn', 'probePrinters: timeout 15s, kill process');
+      resolve([]);
+    }, 15000);
+
+    proc.on('error', (e) => {
+      clearTimeout(timer);
+      log('warn', 'probePrinters: spawn error', { err: e.message });
+      resolve([]);
+    });
+
+    proc.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        log('warn', 'probePrinters: powershell exit != 0', { code, stderr: stderr.trim().slice(0, 200) });
+        return resolve([]);
+      }
+      const raw = stdout.trim();
+      if (!raw) {
+        log('warn', 'probePrinters: stdout rỗng');
+        return resolve([]);
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        log('warn', 'probePrinters: JSON parse failed', { err: e.message, raw: raw.slice(0, 200) });
+        return resolve([]);
+      }
+      // ConvertTo-Json trả object đơn nếu chỉ có 1 máy in → chuẩn hoá về mảng
+      const printers = Array.isArray(parsed) ? parsed : [parsed];
+      const result = printers.map(p => {
+        const name = p.Name || '(unknown)';
+        // WorkOffline hoặc DetectedErrorState=9 → offline
+        if (p.WorkOffline === true || p.DetectedErrorState === 9) return { name, status: 'offline' };
+        switch (p.DetectedErrorState) {
+          case 2: return { name, status: 'online' };
+          case 3: // Low Paper
+          case 4: return { name, status: 'out_of_paper' }; // No Paper
+          case 8: return { name, status: 'paper_jam' };
+          default: return { name, status: 'unknown' };
+        }
+      });
+      resolve(result);
+    });
+  });
+}
+
+// Lấy trạng thái máy in rồi POST lên server (heartbeat).
+// Fail mềm: lỗi chỉ log, không crash agent.
+async function reportPrinterStatus() {
+  const printers = await probePrinters();
+  if (printers.length === 0) return; // Linux dev hoặc không có máy in → bỏ qua
+
+  for (let i = 1; i <= 2; i++) {
+    try {
+      const r = await axios.post(
+        `${API_URL}/api/printers/heartbeat`,
+        { printers },
+        {
+          headers: {
+            'X-Agent-Token': AGENT_TOKEN,
+            'X-Branch-Id': BRANCH_ID,
+            'Content-Type': 'application/json',
+          },
+          timeout: 10000,
+        }
+      );
+      log('info', 'Printer heartbeat sent', { count: printers.length, http: r.status });
+      return;
+    } catch (e) {
+      log('warn', 'Printer heartbeat failed', { attempt: i, err: e.message });
+      if (i < 2) await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+  log('error', 'Printer heartbeat gave up after 2 retries');
+}
+
 // Graceful shutdown
 let pollTimer = null;
 function shutdown(signal) {
@@ -370,8 +472,11 @@ if (require.main === module && !REGISTER_MODE) {
  cleanupStaleTmp();
  connectMqtt();
  // Poll fallback ĐỘC LẬP với MQTT: MQTT sập hẳn vẫn lấy + in được job qua HTTP.
- pollTimer = setInterval(fetchPending, POLL_INTERVAL_MS);
+ // reportPrinterStatus chạy cùng nhịp để không tạo timer thừa.
+ pollTimer = setInterval(() => { fetchPending(); reportPrinterStatus(); }, POLL_INTERVAL_MS);
  log('info', 'Poll fallback started', { intervalMs: POLL_INTERVAL_MS });
+ // Báo trạng thái máy in ngay khi khởi động, không chờ nhịp poll đầu tiên
+ reportPrinterStatus();
 }
 
-module.exports = { enqueue, drain, processJob, fetchPending };
+module.exports = { enqueue, drain, processJob, fetchPending, probePrinters, reportPrinterStatus };
