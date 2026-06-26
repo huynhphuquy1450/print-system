@@ -1,0 +1,66 @@
+/* Layout chính của trang */
+.page {
+  padding: var(--space-4) var(--space-5);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Hàng tiêu đề: tên trang bên trái, nút hành động bên phải */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.header h1 {
+  margin: 0;
+}
+
+.headerActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Spinner căn giữa khi đang tải lần đầu */
+.spinnerWrap {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-8) 0;
+}
+
+/* Khối hiển thị secret: mono, nền xám, bo góc */
+.secretBox {
+  background: var(--color-muted, #f4f4f5);
+  border: 1px solid var(--color-border, #e4e4e7);
+  border-radius: var(--radius-md, 6px);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-3) 0;
+  word-break: break-all;
+  font-family: monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--color-fg);
+}
+
+/* Cảnh báo "chỉ hiển thị 1 lần" */
+.secretWarning {
+  font-size: 0.8125rem;
+  color: var(--color-warning, #b45309);
+  margin-bottom: var(--space-3);
+}
+
+/* Hàng chứa nút Copy bên dưới secret */
+.secretActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* ID client: mono nhỏ */
+.clientId {
+  font-family: monospace;
+  font-size: 0.8125rem;
+  color: var(--color-muted-fg);
+}

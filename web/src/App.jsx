@@ -9,6 +9,7 @@ import WebhooksPage from './pages/WebhooksPage.jsx';
 import StationsPage from './pages/StationsPage.jsx';
 import PrintersPage from './pages/PrintersPage.jsx';
 import AlertsPage from './pages/AlertsPage.jsx';
+import ClientsPage from './pages/ClientsPage.jsx';
 
 function RootRedirect() {
   const { isAuthed } = useAuth();
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/stations" element={<StationsPage />} />
         <Route path="/printers" element={<PrintersPage />} />
         <Route path="/alerts"   element={<AlertsPage />} />
+        <Route path="/clients"  element={<ClientsPage />} />
       </Route>
 
       <Route path="*" element={<RootRedirect />} />

@@ -132,6 +132,18 @@ export const listAlerts = (params) =>
 export const deleteAlert = (id) =>
   request(`/api/v2/alerts/${id}`, { method: 'DELETE' });
 
+// ── Clients ───────────────────────────────────────
+export const listClients = () => request('/api/v2/clients');
+
+export const createClient = (name) =>
+  request('/api/v2/clients', { method: 'POST', body: { name } });
+
+export const setClientActive = (id, is_active) =>
+  request(`/api/v2/clients/${id}`, { method: 'PATCH', body: { is_active } });
+
+export const rotateClientSecret = (id) =>
+  request(`/api/v2/clients/${id}/rotate-secret`, { method: 'POST' });
+
 // ── Webhooks ──────────────────────────────────────
 export const listWebhooks = () => request('/api/v2/webhooks');
 
@@ -159,6 +171,10 @@ const api = {
   listAudit,
   listAlerts,
   deleteAlert,
+  listClients,
+  createClient,
+  setClientActive,
+  rotateClientSecret,
   listWebhooks,
   createWebhook,
   deleteWebhook,
