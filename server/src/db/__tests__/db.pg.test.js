@@ -579,6 +579,64 @@ describe('db.js (pg-mem integration)', () => {
  await pool.end();
  });
 
+ test('deleteAlertsOlderThan xóa alert cũ hơn cutoff, giữ alert mới', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertAlert.run({
+  client_id: 'c1', branch_id: 'br1', printer_id: null,
+  alert_type: 'branch.offline', status: 'offline', created_at: now - 1000,
+ });
+ await stmts.insertAlert.run({
+  client_id: 'c1', branch_id: 'br1', printer_id: null,
+  alert_type: 'branch.offline', status: 'offline', created_at: now,
+ });
+ const res = await stmts.deleteAlertsOlderThan.run({ cutoff: now - 500 });
+ expect(res.rowCount).toBe(1);
+ const remain = await db.query('SELECT * FROM alerts');
+ expect(remain.rows).toHaveLength(1);
+ expect(remain.rows[0].created_at).toBe(now);
+ await pool.end();
+ });
+
+ test('deleteAlertForClient chỉ xóa alert thuộc tenant (scope client_id hoặc branch của client)', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ // Seed client + branch để subquery hoạt động
+ await stmts.insertClient.run({
+  id: 'c1', name: 'Client One', secret_hash: 'h1', is_active: 1, created_at: now,
+ });
+ await stmts.insertBranch.run({
+  id: 'br_a', name: 'Branch A', location: null,
+  client_id: 'c1', agent_token_hash: 'tok_br_a', created_at: now,
+ });
+ // Alert thuộc c1 qua branch br_a (client_id=null, branch_id='br_a')
+ await stmts.insertAlert.run({
+  client_id: null, branch_id: 'br_a', printer_id: null,
+  alert_type: 'branch.offline', status: 'offline', created_at: now,
+ });
+ const alertC1Row = await db.query('SELECT id FROM alerts WHERE branch_id = $1', ['br_a']);
+ const alertC1Id = alertC1Row.rows[0].id;
+ // Alert thuộc c2 (client_id trực tiếp, không qua branch)
+ await stmts.insertAlert.run({
+  client_id: 'c2', branch_id: null, printer_id: null,
+  alert_type: 'branch.offline', status: 'offline', created_at: now,
+ });
+ const alertC2Row = await db.query('SELECT id FROM alerts WHERE client_id = $1', ['c2']);
+ const alertC2Id = alertC2Row.rows[0].id;
+ // c1 xóa được alert của mình (qua branch subquery)
+ const res = await stmts.deleteAlertForClient.run({ id: alertC1Id, client_id: 'c1' });
+ expect(res.rowCount).toBe(1);
+ // c1 không xóa được alert của c2 → tenant isolation
+ const res2 = await stmts.deleteAlertForClient.run({ id: alertC2Id, client_id: 'c1' });
+ expect(res2.rowCount).toBe(0);
+ // Verify alert c2 vẫn còn
+ const remain = await db.query('SELECT * FROM alerts WHERE client_id = $1', ['c2']);
+ expect(remain.rows).toHaveLength(1);
+ await pool.end();
+ });
+
  // TASK 7: getPrinterByBranchAndName tra cứu printer theo branch_id + name.
  test('getPrinterByBranchAndName trả đúng printer và null khi không có (TASK 7)', async () => {
  const { db, stmts, pool } = freshDbModule();
