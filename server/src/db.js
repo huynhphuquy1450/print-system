@@ -270,6 +270,14 @@ const stmts = {
  getClientById: buildStmt('getClientById', `SELECT * FROM clients WHERE id = @id`),
  getClientByName: buildStmt('getClientByName', `SELECT * FROM clients WHERE name = @name`),
  listClients: buildStmt('listClients', `SELECT id, name, is_active, created_at FROM clients`),
+ updateClientActive: buildStmt('updateClientActive', `UPDATE clients SET is_active = @is_active WHERE id = @id`),
+ updateClientSecret: buildStmt('updateClientSecret', `UPDATE clients SET secret_hash = @secret_hash WHERE id = @id`),
+ listClientsWithBranchCount: buildStmt('listClientsWithBranchCount', `
+ SELECT c.id, c.name, c.is_active, c.created_at, COUNT(b.id) AS branch_count
+ FROM clients c LEFT JOIN branches b ON b.client_id = c.id
+ GROUP BY c.id, c.name, c.is_active, c.created_at
+ ORDER BY c.created_at DESC
+ `),
 
  // Branches
  insertBranch: buildStmt('insertBranch', `

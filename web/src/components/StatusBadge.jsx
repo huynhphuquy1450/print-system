@@ -12,6 +12,9 @@ const MAP = {
   paper_jam:    styles.paperJam,
   offline:      styles.offline,
   unknown:      styles.unknown,
+  // Client (tenant) active flag — tái dùng màu online/offline
+  active:       styles.online,
+  inactive:     styles.offline,
 };
 
 const LABEL = {
@@ -20,6 +23,8 @@ const LABEL = {
   paper_jam:    'Kẹt giấy',
   offline:      'Offline',
   unknown:      'Không rõ',
+  active:       'Hoạt động',
+  inactive:     'Vô hiệu',
 };
 
 /**
