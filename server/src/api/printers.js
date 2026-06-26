@@ -62,6 +62,8 @@ router.post(
  branch_id,
  name,
  is_default: isDefault,
+ source: 'manual',
+ approved: 1,
  created_at: Date.now(),
  });
  } catch (e) {
@@ -72,7 +74,7 @@ router.post(
  throw e;
  }
 
- res.status(201).json({ id, branch_id, name, is_default: isDefault });
+ res.status(201).json({ id, branch_id, name, is_default: isDefault, source: 'manual', approved: 1 });
  } catch (e) { next(e); }
  }
 );
@@ -90,20 +92,72 @@ router.post('/heartbeat', verifyAgent, async (req, res, next) => {
  return res.status(400).json({ error: 'printers must be an array' });
  }
  let updated = 0;
+ let discovered = 0;
  for (const item of printers) {
  const { name, status } = item || {};
  if (typeof name !== 'string' || name.length === 0 || !VALID_STATUSES.has(status)) {
  continue;
  }
+ const now = Date.now();
  const result = await stmts.updatePrinterStatus.run({
  status,
- last_seen_at: Date.now(),
+ last_seen_at: now,
  branch_id: req.agent.branchId,
  name,
  });
+ if (result.rowCount > 0) {
  updated += result.rowCount;
+ } else {
+ await stmts.insertDiscoveredPrinter.run({
+ id: `prn_${crypto.randomBytes(4).toString('hex')}`,
+ branch_id: req.agent.branchId,
+ name,
+ status,
+ last_seen_at: now,
+ created_at: now,
+ });
+ discovered += 1;
  }
- res.json({ ok: true, updated });
+ }
+ res.json({ ok: true, updated, discovered });
+ } catch (e) { next(e); }
+});
+
+/**
+ * PATCH /api/printers/:id (Client JWT) - duyệt hoặc đặt mặc định
+ * Body: { is_default?: number, approved?: number }
+ */
+router.patch('/:id', verifyClient, async (req, res, next) => {
+ try {
+ const printer = await stmts.getPrinterById.get(req.params.id);
+ if (!printer) return res.status(404).json({ error: 'Printer not found' });
+
+ const { is_default, approved } = req.body || {};
+
+ if (is_default !== undefined) {
+ if (typeof is_default !== 'number') {
+ return res.status(400).json({ error: "Field 'is_default' must be a number" });
+ }
+ if (is_default) {
+ const existing = await stmts.listPrintersByBranch.all(printer.branch_id);
+ for (const p of existing) {
+ if (p.is_default && p.id !== printer.id) {
+ await db.query('UPDATE printers SET is_default = 0 WHERE id = $1', [p.id]);
+ }
+ }
+ }
+ await stmts.setPrinterDefault.run({ id: printer.id, is_default: is_default ? 1 : 0 });
+ }
+
+ if (approved !== undefined) {
+ if (typeof approved !== 'number') {
+ return res.status(400).json({ error: "Field 'approved' must be a number" });
+ }
+ await stmts.setPrinterApproved.run({ id: printer.id, approved: approved ? 1 : 0 });
+ }
+
+ const result = await stmts.getPrinterById.get(printer.id);
+ res.json(result);
  } catch (e) { next(e); }
 });
 

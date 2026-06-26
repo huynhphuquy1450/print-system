@@ -14,17 +14,26 @@ jest.mock('../../middleware/auth', () => ({
 }));
 
 const mockRunFn = jest.fn();
+const mockInsertDiscoveredPrinter = jest.fn();
+const mockSetPrinterApproved = jest.fn();
+const mockSetPrinterDefault = jest.fn();
+const mockGetPrinterById = jest.fn();
+const mockListPrintersByBranch = jest.fn();
+const mockDbQuery = jest.fn();
 
 jest.mock('../../db', () => ({
  stmts: {
- listPrintersByBranch: { all: jest.fn() },
+ listPrintersByBranch: { all: mockListPrintersByBranch },
  getBranchById: { get: jest.fn() },
  insertPrinter: { run: jest.fn() },
- getPrinterById: { get: jest.fn() },
+ getPrinterById: { get: mockGetPrinterById },
  deletePrinter: { run: jest.fn() },
  updatePrinterStatus: { run: mockRunFn },
+ insertDiscoveredPrinter: { run: mockInsertDiscoveredPrinter },
+ setPrinterApproved: { run: mockSetPrinterApproved },
+ setPrinterDefault: { run: mockSetPrinterDefault },
  },
- db: {},
+ db: { query: mockDbQuery },
 }));
 
 const express = require('express');
@@ -60,7 +69,7 @@ describe('POST /api/printers/heartbeat', () => {
  ] });
 
  expect(res.status).toBe(200);
- expect(res.body).toEqual({ ok: true, updated: 2 });
+ expect(res.body).toEqual({ ok: true, updated: 2, discovered: 0 });
  expect(mockRunFn).toHaveBeenCalledTimes(2);
  expect(mockRunFn).toHaveBeenCalledWith(expect.objectContaining({
  status: 'online', branch_id: 'br_001', name: 'HP-001',
@@ -80,8 +89,9 @@ describe('POST /api/printers/heartbeat', () => {
  expect(mockRunFn).not.toHaveBeenCalled();
  });
 
- test('name lạ không tồn tại trong DB → updated:0, không lỗi', async () => {
+ test('name lạ không tồn tại trong DB → insertDiscoveredPrinter, discovered:1', async () => {
  mockRunFn.mockResolvedValue({ rowCount: 0 });
+ mockInsertDiscoveredPrinter.mockResolvedValue({ rowCount: 1 });
 
  const res = await request(app)
  .post('/api/printers/heartbeat')
@@ -90,7 +100,12 @@ describe('POST /api/printers/heartbeat', () => {
  .send({ printers: [{ name: 'ghost-printer', status: 'online' }] });
 
  expect(res.status).toBe(200);
- expect(res.body).toEqual({ ok: true, updated: 0 });
+ expect(res.body).toEqual({ ok: true, updated: 0, discovered: 1 });
+ expect(mockInsertDiscoveredPrinter).toHaveBeenCalledWith(expect.objectContaining({
+ branch_id: 'br_001',
+ name: 'ghost-printer',
+ status: 'online',
+ }));
  });
 
  test('status ngoài enum → item bị bỏ qua, không gọi run', async () => {
@@ -101,7 +116,7 @@ describe('POST /api/printers/heartbeat', () => {
  .send({ printers: [{ name: 'HP-001', status: 'broken' }] });
 
  expect(res.status).toBe(200);
- expect(res.body).toEqual({ ok: true, updated: 0 });
+ expect(res.body).toEqual({ ok: true, updated: 0, discovered: 0 });
  expect(mockRunFn).not.toHaveBeenCalled();
  });
 
@@ -114,5 +129,88 @@ describe('POST /api/printers/heartbeat', () => {
 
  expect(res.status).toBe(400);
  expect(res.body.error).toBe('printers must be an array');
+ });
+});
+
+describe('POST /api/printers/heartbeat - máy đã tồn tại', () => {
+ test('heartbeat máy đã tồn tại → updated:1, discovered:0', async () => {
+ mockRunFn.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'HP-001', status: 'online' }] });
+
+ expect(res.status).toBe(200);
+ expect(res.body).toEqual({ ok: true, updated: 1, discovered: 0 });
+ expect(mockInsertDiscoveredPrinter).not.toHaveBeenCalled();
+ });
+});
+
+describe('PATCH /api/printers/:id', () => {
+ test('PATCH {approved:1} → gọi setPrinterApproved, trả printer đã cập nhật', async () => {
+ const printer = { id: 'prn_001', branch_id: 'br_001', name: 'HP-001', is_default: 0, approved: 0, source: 'discovered' };
+ const updated = { ...printer, approved: 1 };
+ mockGetPrinterById.mockResolvedValueOnce(printer).mockResolvedValueOnce(updated);
+ mockSetPrinterApproved.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .patch('/api/printers/prn_001')
+ .send({ approved: 1 });
+
+ expect(res.status).toBe(200);
+ expect(res.body.approved).toBe(1);
+ expect(mockSetPrinterApproved).toHaveBeenCalledWith({ id: 'prn_001', approved: 1 });
+ });
+
+ test('PATCH {is_default:1} → unset default máy khác, gọi setPrinterDefault', async () => {
+ const printer = { id: 'prn_002', branch_id: 'br_001', name: 'HP-002', is_default: 0, approved: 1 };
+ const otherPrinter = { id: 'prn_003', branch_id: 'br_001', name: 'HP-003', is_default: 1, approved: 1 };
+ const updated = { ...printer, is_default: 1 };
+ mockGetPrinterById.mockResolvedValueOnce(printer).mockResolvedValueOnce(updated);
+ mockListPrintersByBranch.mockResolvedValue([printer, otherPrinter]);
+ mockSetPrinterDefault.mockResolvedValue({ rowCount: 1 });
+ mockDbQuery.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .patch('/api/printers/prn_002')
+ .send({ is_default: 1 });
+
+ expect(res.status).toBe(200);
+ expect(mockDbQuery).toHaveBeenCalledWith(
+ 'UPDATE printers SET is_default = 0 WHERE id = $1',
+ ['prn_003']
+ );
+ expect(mockSetPrinterDefault).toHaveBeenCalledWith({ id: 'prn_002', is_default: 1 });
+ });
+
+ test('PATCH printer không tồn tại → 404', async () => {
+ mockGetPrinterById.mockResolvedValue(null);
+
+ const res = await request(app)
+ .patch('/api/printers/non_existent')
+ .send({ approved: 1 });
+
+ expect(res.status).toBe(404);
+ expect(res.body.error).toBe('Printer not found');
+ });
+});
+
+describe('POST /api/printers (manual)', () => {
+ test('POST manual → response có approved:1, source:manual', async () => {
+ const { stmts: mockStmts } = require('../../db');
+ mockStmts.getBranchById.get.mockResolvedValue({ id: 'br_001', name: 'Branch' });
+ mockStmts.insertPrinter.run.mockResolvedValue({ rowCount: 1 });
+ mockListPrintersByBranch.mockResolvedValue([]);
+
+ const res = await request(app)
+ .post('/api/printers')
+ .send({ branch_id: 'br_001', name: 'Manual-Printer' });
+
+ expect(res.status).toBe(201);
+ expect(res.body.source).toBe('manual');
+ expect(res.body.approved).toBe(1);
+ expect(res.body.name).toBe('Manual-Printer');
  });
 });

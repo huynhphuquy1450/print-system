@@ -292,7 +292,7 @@ describe('db.js (pg-mem integration)', () => {
  });
  await stmts.insertPrinter.run({
  id: 'prn_1', branch_id: 'br_p1', name: 'HP-001',
- is_default: 0, created_at: now,
+ is_default: 0, source: 'manual', approved: 1, created_at: now,
  });
  const ts = now + 5000;
  const res = await stmts.updatePrinterStatus.run({
@@ -317,6 +317,85 @@ describe('db.js (pg-mem integration)', () => {
  status: 'offline', last_seen_at: now, branch_id: 'br_p2', name: 'ghost-printer',
  });
  expect(res.rowCount).toBe(0);
+ await pool.end();
+ });
+
+ test('printers table has source (default manual) and approved (default 1) columns', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertBranch.run({
+ id: 'br_src', name: 'Source Branch', location: null,
+ agent_token_hash: 'tok_src', created_at: now,
+ });
+ await stmts.insertPrinter.run({
+ id: 'prn_src', branch_id: 'br_src', name: 'HP-Source',
+ is_default: 0, source: 'manual', approved: 1, created_at: now,
+ });
+ const row = await stmts.getPrinterById.get({ id: 'prn_src' });
+ expect(row).not.toBeNull();
+ expect(row.source).toBe('manual');
+ expect(row.approved).toBe(1);
+ await pool.end();
+ });
+
+ test('insertDiscoveredPrinter tạo row với source=discovered, approved=0', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertBranch.run({
+ id: 'br_disc', name: 'Disc Branch', location: null,
+ agent_token_hash: 'tok_disc', created_at: now,
+ });
+ await stmts.insertDiscoveredPrinter.run({
+ id: 'prn_disc', branch_id: 'br_disc', name: 'Auto-001',
+ status: 'online', last_seen_at: now, created_at: now,
+ });
+ const row = await stmts.getPrinterById.get({ id: 'prn_disc' });
+ expect(row).not.toBeNull();
+ expect(row.source).toBe('discovered');
+ expect(row.approved).toBe(0);
+ expect(row.status).toBe('online');
+ await pool.end();
+ });
+
+ test('setPrinterApproved đổi approved từ 0 lên 1', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertBranch.run({
+ id: 'br_appr', name: 'Appr Branch', location: null,
+ agent_token_hash: 'tok_appr', created_at: now,
+ });
+ await stmts.insertDiscoveredPrinter.run({
+ id: 'prn_appr', branch_id: 'br_appr', name: 'Auto-Appr',
+ status: 'online', last_seen_at: now, created_at: now,
+ });
+ const before = await stmts.getPrinterById.get({ id: 'prn_appr' });
+ expect(before.approved).toBe(0);
+ await stmts.setPrinterApproved.run({ id: 'prn_appr', approved: 1 });
+ const after = await stmts.getPrinterById.get({ id: 'prn_appr' });
+ expect(after.approved).toBe(1);
+ await pool.end();
+ });
+
+ test('setPrinterDefault đổi is_default', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertBranch.run({
+ id: 'br_def', name: 'Def Branch', location: null,
+ agent_token_hash: 'tok_def', created_at: now,
+ });
+ await stmts.insertPrinter.run({
+ id: 'prn_def', branch_id: 'br_def', name: 'HP-Def',
+ is_default: 0, source: 'manual', approved: 1, created_at: now,
+ });
+ const before = await stmts.getPrinterById.get({ id: 'prn_def' });
+ expect(before.is_default).toBe(0);
+ await stmts.setPrinterDefault.run({ id: 'prn_def', is_default: 1 });
+ const after = await stmts.getPrinterById.get({ id: 'prn_def' });
+ expect(after.is_default).toBe(1);
  await pool.end();
  });
 });

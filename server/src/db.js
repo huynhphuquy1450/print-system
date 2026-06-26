@@ -47,6 +47,8 @@ const SCHEMA_SQL = `
  name TEXT NOT NULL,
  is_default INTEGER DEFAULT 0,
  status TEXT DEFAULT 'unknown',
+ source TEXT DEFAULT 'manual',
+ approved INTEGER DEFAULT 1,
  last_seen_at BIGINT,
  created_at BIGINT NOT NULL
  );
@@ -145,6 +147,16 @@ async function initSchema() {
  } catch (e) {
  if (!/already exists/i.test(e.message)) throw e;
  }
+ try {
+ await pool.query(`ALTER TABLE printers ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual'`);
+ } catch (e) {
+ if (!/already exists/i.test(e.message)) throw e;
+ }
+ try {
+ await pool.query(`ALTER TABLE printers ADD COLUMN IF NOT EXISTS approved INTEGER DEFAULT 1`);
+ } catch (e) {
+ if (!/already exists/i.test(e.message)) throw e;
+ }
  initialized = true;
  logger.info('Postgres schema initialized');
 }
@@ -220,8 +232,18 @@ const stmts = {
 
  // Printers
  insertPrinter: buildStmt('insertPrinter', `
- INSERT INTO printers (id, branch_id, name, is_default, status, created_at)
- VALUES (@id, @branch_id, @name, @is_default, 'unknown', @created_at)
+ INSERT INTO printers (id, branch_id, name, is_default, status, source, approved, created_at)
+ VALUES (@id, @branch_id, @name, @is_default, 'unknown', @source, @approved, @created_at)
+ `),
+ insertDiscoveredPrinter: buildStmt('insertDiscoveredPrinter', `
+ INSERT INTO printers (id, branch_id, name, is_default, status, last_seen_at, source, approved, created_at)
+ VALUES (@id, @branch_id, @name, 0, @status, @last_seen_at, 'discovered', 0, @created_at)
+ `),
+ setPrinterApproved: buildStmt('setPrinterApproved', `
+ UPDATE printers SET approved = @approved WHERE id = @id
+ `),
+ setPrinterDefault: buildStmt('setPrinterDefault', `
+ UPDATE printers SET is_default = @is_default WHERE id = @id
  `),
  getPrinterById: buildStmt('getPrinterById', `SELECT * FROM printers WHERE id = @id`),
  listPrintersByBranch: buildStmt('listPrintersByBranch', `
