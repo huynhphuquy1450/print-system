@@ -98,16 +98,19 @@ export default function StationsPage() {
             </div>
 
             <div className={styles.printerList}>
-              {branch.printers.length === 0 ? (
-                <EmptyState title="Chưa có máy in" />
-              ) : (
-                branch.printers.map((printer) => (
-                  <div key={printer.id} className={styles.printerRow}>
-                    <span className={styles.printerName}>{printer.name}</span>
-                    <StatusBadge status={effectivePrinterStatus(printer)} />
-                  </div>
-                ))
-              )}
+              {(() => {
+                const approvedPrinters = branch.printers.filter((p) => p.approved !== 0);
+                return approvedPrinters.length === 0 ? (
+                  <EmptyState title="Chưa có máy in" />
+                ) : (
+                  approvedPrinters.map((printer) => (
+                    <div key={printer.id} className={styles.printerRow}>
+                      <span className={styles.printerName}>{printer.name}</span>
+                      <StatusBadge status={effectivePrinterStatus(printer)} />
+                    </div>
+                  ))
+                );
+              })()}
             </div>
           </div>
         ))}

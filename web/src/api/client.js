@@ -88,6 +88,15 @@ export const listBranches = () => request('/api/v1/branches');
 export const listPrinters = (branchId) =>
   request('/api/printers', { query: { branch_id: branchId } });
 
+export const createPrinter = (body) =>
+  request('/api/printers', { method: 'POST', body });
+
+export const updatePrinter = (id, body) =>
+  request(`/api/printers/${id}`, { method: 'PATCH', body });
+
+export const deletePrinter = (id) =>
+  request(`/api/printers/${id}`, { method: 'DELETE' });
+
 // ── Print Jobs ────────────────────────────────────
 /** @param {{ branch_id?, status?, from?, to?, limit?, offset? }} params */
 export const listJobs = (params) =>
@@ -124,6 +133,9 @@ const api = {
   me,
   listBranches,
   listPrinters,
+  createPrinter,
+  updatePrinter,
+  deletePrinter,
   listJobs,
   retryJob,
   createJob,
