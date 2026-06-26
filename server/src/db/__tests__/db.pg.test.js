@@ -281,4 +281,42 @@ describe('db.js (pg-mem integration)', () => {
  expect(remain.rows[0].at).toBe(now);
  await pool.end();
  });
+
+ test('updatePrinterStatus đổi status + last_seen_at cho printer đúng', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertBranch.run({
+ id: 'br_p1', name: 'P Branch', location: null,
+ agent_token_hash: 'tok_p1', created_at: now,
+ });
+ await stmts.insertPrinter.run({
+ id: 'prn_1', branch_id: 'br_p1', name: 'HP-001',
+ is_default: 0, created_at: now,
+ });
+ const ts = now + 5000;
+ const res = await stmts.updatePrinterStatus.run({
+ status: 'online', last_seen_at: ts, branch_id: 'br_p1', name: 'HP-001',
+ });
+ expect(res.rowCount).toBe(1);
+ const printer = await stmts.getPrinterById.get({ id: 'prn_1' });
+ expect(printer.status).toBe('online');
+ expect(printer.last_seen_at).toBe(ts);
+ await pool.end();
+ });
+
+ test('updatePrinterStatus với name không tồn tại → rowCount 0', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertBranch.run({
+ id: 'br_p2', name: 'P Branch 2', location: null,
+ agent_token_hash: 'tok_p2', created_at: now,
+ });
+ const res = await stmts.updatePrinterStatus.run({
+ status: 'offline', last_seen_at: now, branch_id: 'br_p2', name: 'ghost-printer',
+ });
+ expect(res.rowCount).toBe(0);
+ await pool.end();
+ });
 });

@@ -228,6 +228,10 @@ const stmts = {
  SELECT * FROM printers WHERE branch_id = @branch_id ORDER BY is_default DESC, name ASC
  `),
  deletePrinter: buildStmt('deletePrinter', `DELETE FROM printers WHERE id = @id`),
+ updatePrinterStatus: buildStmt('updatePrinterStatus', `
+ UPDATE printers SET status = @status, last_seen_at = @last_seen_at
+ WHERE branch_id = @branch_id AND name = @name
+ `),
 
  // Jobs
  insertJob: buildStmt('insertJob', `
