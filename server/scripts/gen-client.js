@@ -29,13 +29,16 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const { stmts } = require('../src/db');
 const config = require('../src/config');
+const { validateClientId } = require('../src/services/client-service');
 
 /**
  * Core: tạo client mới, return { id, secret, name }.
- * Throw nếu tên đã tồn tại.
+ * @param {string} name - tên client (unique)
+ * @param {string} [customId] - client_id tuỳ chọn; bỏ trống → tự sinh cli_<16 hex>
+ * Throw nếu tên/id đã tồn tại hoặc id sai định dạng.
  * Pure function — không touch console hay filesystem.
  */
-async function createClient(name) {
+async function createClient(name, customId) {
  const existing = await stmts.getClientByName.get(name);
  if (existing) {
  const err = new Error(`Client '${name}' already exists (id=${existing.id}).`);
@@ -43,7 +46,19 @@ async function createClient(name) {
  throw err;
  }
 
- const id = `cli_${crypto.randomBytes(8).toString('hex')}`;
+ let id;
+ if (customId) {
+ validateClientId(customId);
+ const dup = await stmts.getClientById.get(customId);
+ if (dup) {
+ const err = new Error(`client_id '${customId}' already exists.`);
+ err.code = 'CLIENT_ID_EXISTS';
+ throw err;
+ }
+ id = customId;
+ } else {
+ id = `cli_${crypto.randomBytes(8).toString('hex')}`;
+ }
  const secret = crypto.randomBytes(32).toString('base64url');
  const secretHash = bcrypt.hashSync(secret, 10);
 
@@ -75,15 +90,17 @@ module.exports = { createClient, writeInstallFile };
 if (require.main === module) {
  (async () => {
  const name = process.argv[2];
+ const customId = process.argv[3] || process.env.CLIENT_ID;
  if (!name) {
- console.error('Usage: node scripts/gen-client.js <client-name>');
+ console.error('Usage: node scripts/gen-client.js <client-name> [client-id]');
+ console.error(' client-id tuỳ chọn (a-z 0-9 _ - , 2-64 ký tự); bỏ trống → tự sinh. Hoặc đặt env CLIENT_ID.');
  console.error(' Set OUTPUT_FILE env var to write install JSON instead of console.');
  process.exit(1);
  }
 
  let result;
  try {
- result = await createClient(name);
+ result = await createClient(name, customId);
  } catch (e) {
  console.error(e.message);
  console.error('Use a different name or delete from DB manually.');

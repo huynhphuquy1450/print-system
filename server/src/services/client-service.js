@@ -5,8 +5,33 @@ const bcrypt = require('bcryptjs');
 const { stmts } = require('../db');
 const { generateClientSecret } = require('./auth-service');
 
-async function create(name) {
-  const id = `cli_${crypto.randomBytes(8).toString('hex')}`;
+// client_id đi vào JWT `sub` + URL path → giới hạn ký tự an toàn. Bắt đầu bằng chữ/số,
+// chỉ a-z 0-9 _ - , dài 2-64. Không truyền id → tự sinh ngẫu nhiên cli_<16 hex>.
+const CLIENT_ID_RE = /^[a-z0-9][a-z0-9_-]{1,63}$/;
+
+function validateClientId(id) {
+  if (typeof id !== 'string' || !CLIENT_ID_RE.test(id)) {
+    const err = new Error('client_id không hợp lệ: chỉ gồm a-z 0-9 _ - , bắt đầu bằng chữ/số, dài 2-64 ký tự');
+    err.code = 'INVALID_CLIENT_ID';
+    throw err;
+  }
+  return id;
+}
+
+async function create(name, opts = {}) {
+  let id;
+  if (opts.id !== undefined && opts.id !== null && opts.id !== '') {
+    validateClientId(opts.id);
+    const existing = await stmts.getClientById.get(opts.id);
+    if (existing) {
+      const err = new Error(`client_id '${opts.id}' đã tồn tại`);
+      err.code = 'CLIENT_ID_EXISTS';
+      throw err;
+    }
+    id = opts.id;
+  } else {
+    id = `cli_${crypto.randomBytes(8).toString('hex')}`;
+  }
   const secret = generateClientSecret();
   const secret_hash = bcrypt.hashSync(secret, 10);
   const created_at = Date.now();
@@ -42,4 +67,4 @@ async function rotateSecret(id) {
   return { id, secret };
 }
 
-module.exports = { create, list, setActive, rotateSecret };
+module.exports = { create, list, setActive, rotateSecret, validateClientId };
