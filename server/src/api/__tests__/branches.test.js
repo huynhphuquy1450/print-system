@@ -17,6 +17,8 @@ jest.mock('../../db', () => ({
  updateBranchToken: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
  updateBranchStatus: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
  updateBranch: { run: jest.fn() },
+ updateBranchClient: { run: jest.fn() },
+ getClientById: { get: jest.fn() },
  getBranchByTokenHash: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
  },
  db: { query: jest.fn() },
@@ -167,5 +169,104 @@ describe('POST /api/v1/branches/:id/regen-token', () => {
 
  expect(res.status).toBe(403);
  expect(stmts.updateBranchToken.run).not.toHaveBeenCalled();
+ });
+});
+
+describe('POST /api/v1/branches/:id/transfer-client', () => {
+ test('200: chuyển branch sang client đích hợp lệ', async () => {
+ stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', name: 'Trạm', client_id: 'c1' });
+ stmts.getClientById.get.mockResolvedValue({ id: 'c2', is_active: 1 });
+ stmts.updateBranchClient.run.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/v1/branches/br_1/transfer-client')
+ .send({ target_client_id: 'c2' });
+
+ expect(res.status).toBe(200);
+ expect(res.body).toEqual({ id: 'br_1', name: 'Trạm', client_id: 'c2' });
+ expect(stmts.updateBranchClient.run).toHaveBeenCalledWith({ id: 'br_1', client_id: 'c2' });
+ });
+
+ test('400: thiếu target_client_id → validate chặn', async () => {
+ const res = await request(app)
+ .post('/api/v1/branches/br_1/transfer-client')
+ .send({});
+
+ expect(res.status).toBe(400);
+ expect(res.body.error).toBe('Validation failed');
+ expect(stmts.getBranchById.get).not.toHaveBeenCalled();
+ });
+
+ test('404: branch không tồn tại', async () => {
+ stmts.getBranchById.get.mockResolvedValue(null);
+
+ const res = await request(app)
+ .post('/api/v1/branches/br_missing/transfer-client')
+ .send({ target_client_id: 'c2' });
+
+ expect(res.status).toBe(404);
+ expect(res.body.error).toBe('Branch not found');
+ });
+
+ test('403: branch thuộc client khác → không cập nhật', async () => {
+ stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', name: 'Trạm', client_id: 'c2' });
+
+ const res = await request(app)
+ .post('/api/v1/branches/br_1/transfer-client')
+ .send({ target_client_id: 'c3' });
+
+ expect(res.status).toBe(403);
+ expect(stmts.updateBranchClient.run).not.toHaveBeenCalled();
+ });
+
+ test('400: chuyển sang chính client hiện tại', async () => {
+ stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', name: 'Trạm', client_id: 'c1' });
+
+ const res = await request(app)
+ .post('/api/v1/branches/br_1/transfer-client')
+ .send({ target_client_id: 'c1' });
+
+ expect(res.status).toBe(400);
+ expect(res.body.error).toContain('đã thuộc client này');
+ expect(stmts.getClientById.get).not.toHaveBeenCalled();
+ });
+
+ test('404: client đích không tồn tại', async () => {
+ stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', name: 'Trạm', client_id: 'c1' });
+ stmts.getClientById.get.mockResolvedValue(null);
+
+ const res = await request(app)
+ .post('/api/v1/branches/br_1/transfer-client')
+ .send({ target_client_id: 'c2' });
+
+ expect(res.status).toBe(404);
+ expect(res.body.error).toContain('Client đích không tồn tại');
+ expect(stmts.updateBranchClient.run).not.toHaveBeenCalled();
+ });
+
+ test('400: client đích không hoạt động (is_active=0)', async () => {
+ stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', name: 'Trạm', client_id: 'c1' });
+ stmts.getClientById.get.mockResolvedValue({ id: 'c2', is_active: 0 });
+
+ const res = await request(app)
+ .post('/api/v1/branches/br_1/transfer-client')
+ .send({ target_client_id: 'c2' });
+
+ expect(res.status).toBe(400);
+ expect(res.body.error).toContain('không hoạt động');
+ expect(stmts.updateBranchClient.run).not.toHaveBeenCalled();
+ });
+
+ test('409: trùng tên trạm ở client đích (23505)', async () => {
+ stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', name: 'Trạm', client_id: 'c1' });
+ stmts.getClientById.get.mockResolvedValue({ id: 'c2', is_active: 1 });
+ stmts.updateBranchClient.run.mockRejectedValue({ code: '23505' });
+
+ const res = await request(app)
+ .post('/api/v1/branches/br_1/transfer-client')
+ .send({ target_client_id: 'c2' });
+
+ expect(res.status).toBe(409);
+ expect(res.body.error).toContain('đã tồn tại trong client đích');
  });
 });

@@ -147,4 +147,40 @@ router.patch('/:id', verifyClient, validate({
  } catch (e) { next(e); }
 });
 
+/**
+ * POST /api/branches/:id/transfer-client (Client JWT) - gán branch sang client khác
+ * Chỉ client chủ branch hiện tại mới được chuyển. Body: { target_client_id }
+ */
+router.post('/:id/transfer-client', verifyClient, validate({
+ target_client_id: { required: true, type: 'string', minLength: 1 },
+}), async (req, res, next) => {
+ try {
+ const branch = await stmts.getBranchById.get(req.params.id);
+ if (!branch) return res.status(404).json({ error: 'Branch not found' });
+ if (branch.client_id !== req.client.id) {
+ return res.status(403).json({ error: 'Không có quyền chuyển trạm này' });
+ }
+
+ const targetId = req.body.target_client_id;
+ if (targetId === branch.client_id) {
+ return res.status(400).json({ error: 'Trạm đã thuộc client này' });
+ }
+ const target = await stmts.getClientById.get(targetId);
+ if (!target) return res.status(404).json({ error: 'Client đích không tồn tại' });
+ if (target.is_active === 0) return res.status(400).json({ error: 'Client đích không hoạt động' });
+
+ res.locals.audit = { action: 'branch.transfer_client', resource_type: 'branch', resource_id: branch.id };
+
+ try {
+ await stmts.updateBranchClient.run({ id: branch.id, client_id: targetId });
+ } catch (e) {
+ if (e.code === '23505') {
+ return res.status(409).json({ error: `Tên trạm '${branch.name}' đã tồn tại trong client đích` });
+ }
+ throw e;
+ }
+ res.json({ id: branch.id, name: branch.name, client_id: targetId });
+ } catch (e) { next(e); }
+});
+
 module.exports = router;

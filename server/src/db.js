@@ -299,6 +299,9 @@ const stmts = {
  updateBranch: buildStmt('updateBranch', `
  UPDATE branches SET name = @name, location = @location WHERE id = @id
  `),
+ updateBranchClient: buildStmt('updateBranchClient', `
+ UPDATE branches SET client_id = @client_id WHERE id = @id
+ `),
  // Cron offline detection (TASK 6): hạ status='offline' khi last_seen_at quá hạn. Chỉ flip
  // branch đang khác 'offline' và đã từng kết nối (NULL = chưa từng → giữ default 'offline').
  markOfflineBranches: buildStmt('markOfflineBranches', `
