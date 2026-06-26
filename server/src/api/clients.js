@@ -18,19 +18,24 @@ router.get('/', verifyClient, async (req, res, next) => {
 
 /**
  * POST /api/v2/clients — tạo client mới
- * Body: { name }
+ * Body: { name, id? } — id tuỳ chọn (đặt client_id dễ đọc); bỏ trống → tự sinh.
  * Returns: { id, name, secret (plaintext, 1 lần), is_active }
  */
 router.post(
   '/',
   verifyClient,
-  validate({ name: { required: true, type: 'string', minLength: 1, maxLength: 100 } }),
+  validate({
+    name: { required: true, type: 'string', minLength: 1, maxLength: 100 },
+    id: { type: 'string', minLength: 2, maxLength: 64 },
+  }),
   async (req, res, next) => {
     try {
-      const c = await clientService.create(req.body.name);
+      const c = await clientService.create(req.body.name, { id: req.body.id });
       res.locals.audit = { action: 'client.create', resource_type: 'client', resource_id: c.id };
       res.status(201).json(c);
     } catch (e) {
+      if (e.code === 'INVALID_CLIENT_ID') return res.status(400).json({ error: e.message });
+      if (e.code === 'CLIENT_ID_EXISTS') return res.status(409).json({ error: e.message });
       if (e.code === '23505') return res.status(409).json({ error: `Client '${req.body.name}' đã tồn tại` });
       next(e);
     }

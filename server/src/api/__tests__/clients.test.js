@@ -49,7 +49,54 @@ describe('POST /api/v2/clients', () => {
     expect(res.body.secret).toBe('plaintext_secret');
     expect(res.body.is_active).toBe(1);
     expect(res.body.secret_hash).toBeUndefined();
-    expect(mockCreate).toHaveBeenCalledWith('NewCo');
+    expect(mockCreate).toHaveBeenCalledWith('NewCo', { id: undefined });
+  });
+
+  test('tạo với id tuỳ chọn → 201, id truyền xuống service', async () => {
+    mockCreate.mockResolvedValue({ id: 'cli_quan1', name: 'Quận 1', secret: 's', is_active: 1 });
+
+    const res = await request(app)
+      .post('/api/v2/clients')
+      .send({ name: 'Quận 1', id: 'cli_quan1' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.id).toBe('cli_quan1');
+    expect(mockCreate).toHaveBeenCalledWith('Quận 1', { id: 'cli_quan1' });
+  });
+
+  test('id sai định dạng → 400', async () => {
+    const err = new Error('client_id không hợp lệ');
+    err.code = 'INVALID_CLIENT_ID';
+    mockCreate.mockRejectedValue(err);
+
+    const res = await request(app)
+      .post('/api/v2/clients')
+      .send({ name: 'X', id: 'BAD ID!' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/không hợp lệ/);
+  });
+
+  test('id đã tồn tại → 409', async () => {
+    const err = new Error("client_id 'cli_dup' đã tồn tại");
+    err.code = 'CLIENT_ID_EXISTS';
+    mockCreate.mockRejectedValue(err);
+
+    const res = await request(app)
+      .post('/api/v2/clients')
+      .send({ name: 'X', id: 'cli_dup' });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/đã tồn tại/);
+  });
+
+  test('id quá ngắn (<2) → 400 validation (chặn ở middleware)', async () => {
+    const res = await request(app)
+      .post('/api/v2/clients')
+      .send({ name: 'X', id: 'a' });
+
+    expect(res.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   test('trùng name → 409', async () => {

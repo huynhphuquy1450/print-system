@@ -61,6 +61,46 @@ describe('clientService (pg-mem integration)', () => {
     await pool.end();
   });
 
+  test('create() với id tuỳ chọn → dùng đúng id, đọc lại được', async () => {
+    const { dbModule, serviceModule } = freshModules();
+    const { db, stmts, pool } = dbModule;
+    await db.initSchema();
+
+    const result = await serviceModule.create('Quận 1', { id: 'cli_quan1' });
+    expect(result.id).toBe('cli_quan1');
+    const row = await stmts.getClientById.get('cli_quan1');
+    expect(row).not.toBeNull();
+    expect(row.name).toBe('Quận 1');
+
+    await pool.end();
+  });
+
+  test('create() id sai định dạng → INVALID_CLIENT_ID, không ghi DB', async () => {
+    const { dbModule, serviceModule } = freshModules();
+    const { db, stmts, pool } = dbModule;
+    await db.initSchema();
+
+    await expect(serviceModule.create('X', { id: 'BAD ID!' }))
+      .rejects.toMatchObject({ code: 'INVALID_CLIENT_ID' });
+    // name không bị tạo dở
+    const byName = await stmts.getClientByName.get('X');
+    expect(byName).toBeNull();
+
+    await pool.end();
+  });
+
+  test('create() id trùng → CLIENT_ID_EXISTS', async () => {
+    const { dbModule, serviceModule } = freshModules();
+    const { db, pool } = dbModule;
+    await db.initSchema();
+
+    await serviceModule.create('First', { id: 'cli_shared' });
+    await expect(serviceModule.create('Second', { id: 'cli_shared' }))
+      .rejects.toMatchObject({ code: 'CLIENT_ID_EXISTS' });
+
+    await pool.end();
+  });
+
   test('list() trả branch_count đúng', async () => {
     const { dbModule, serviceModule } = freshModules();
     const { db, stmts, pool } = dbModule;
