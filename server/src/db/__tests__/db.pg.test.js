@@ -245,6 +245,42 @@ describe('db.js (pg-mem integration)', () => {
  await pool.end();
  });
 
+ test('updateBranchClient đổi client_id, getBranchById phản ánh chủ mới', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({ id: 'c1', name: 'Acme', secret_hash: 'h', is_active: 1, created_at: now });
+ await stmts.insertClient.run({ id: 'c2', name: 'Beta', secret_hash: 'h', is_active: 1, created_at: now });
+ await stmts.insertBranch.run({
+ id: 'br_001', name: 'Branch 1', location: null,
+ client_id: 'c1', agent_token_hash: 'tok1', created_at: now,
+ });
+ await stmts.updateBranchClient.run({ id: 'br_001', client_id: 'c2' });
+ const row = await stmts.getBranchById.get({ id: 'br_001' });
+ expect(row.client_id).toBe('c2');
+ await pool.end();
+ });
+
+ test('updateBranchClient sang client đã có branch trùng tên → 23505', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({ id: 'c1', name: 'Acme', secret_hash: 'h', is_active: 1, created_at: now });
+ await stmts.insertClient.run({ id: 'c2', name: 'Beta', secret_hash: 'h', is_active: 1, created_at: now });
+ await stmts.insertBranch.run({
+ id: 'br_001', name: 'Branch 1', location: null,
+ client_id: 'c1', agent_token_hash: 'tok1', created_at: now,
+ });
+ // c2 đã có branch cùng tên 'Branch 1' → chuyển br_001 sang c2 phải vi phạm partial UNIQUE
+ await stmts.insertBranch.run({
+ id: 'br_002', name: 'Branch 1', location: null,
+ client_id: 'c2', agent_token_hash: 'tok2', created_at: now,
+ });
+ await expect(stmts.updateBranchClient.run({ id: 'br_001', client_id: 'c2' }))
+ .rejects.toMatchObject({ code: '23505' });
+ await pool.end();
+ });
+
  test('insertAudit ghi + đọc lại được dòng audit_log (HM5)', async () => {
  const { db, stmts, pool } = freshDbModule();
  await db.initSchema();
