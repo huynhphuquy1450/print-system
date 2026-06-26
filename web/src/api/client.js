@@ -129,6 +129,9 @@ export const listAudit = (params) =>
 export const listAlerts = (params) =>
   request('/api/v2/alerts', { query: params });
 
+export const deleteAlert = (id) =>
+  request(`/api/v2/alerts/${id}`, { method: 'DELETE' });
+
 // ── Webhooks ──────────────────────────────────────
 export const listWebhooks = () => request('/api/v2/webhooks');
 
@@ -155,6 +158,7 @@ const api = {
   bulkCreate,
   listAudit,
   listAlerts,
+  deleteAlert,
   listWebhooks,
   createWebhook,
   deleteWebhook,
