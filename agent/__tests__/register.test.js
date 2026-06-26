@@ -73,6 +73,51 @@ describe('agent --register', () => {
  expect(envContent).toMatch(/^MQTT_TOPIC_PREFIX=company\/printer$/m);
  });
 
+ test('install.json có agent_env → .env chứa đầy đủ key hạ tầng', async () => {
+ const install = {
+ server_url: 'http://localhost:3000',
+ client_id: 'cli_test_123',
+ client_secret: 'plaintext_secret',
+ client_name: 'Acme Corp',
+ created_at: '2026-06-24T16:00:00.000Z',
+ agent_env: {
+ MQTT_URL: 'mqtts://host:8883',
+ MQTT_USER: 'printservice',
+ MQTT_PASS: 'broker_pass',
+ API_URL: 'https://host:443',
+ MQTT_CA_FILE: 'C:\\print-system\\root_ca.crt',
+ SUMATRA_PATH: 'C:\\print-system\\tools\\SumatraPDF.exe',
+ },
+ };
+ const installPath = path.join(tmpDir, 'install.json');
+ fs.writeFileSync(installPath, JSON.stringify(install, null, 2));
+ const envPath = path.join(tmpDir, '.env');
+
+ const fakeFetch = jest.fn().mockResolvedValue({
+ ok: true,
+ status: 201,
+ json: async () => ({
+ branch_id: 'br_xyz',
+ agent_token: 'a'.repeat(64),
+ topic_prefix: 'company/printer',
+ }),
+ });
+
+ await register(installPath, {
+ fetch: fakeFetch,
+ injectPrompts: { branchName: 'Chi nhánh Q1', location: 'HCM' },
+ envPath,
+ });
+
+ const envContent = fs.readFileSync(envPath, 'utf8');
+ expect(envContent).toMatch(/^BRANCH_ID=br_xyz$/m);
+ expect(envContent).toMatch(/^MQTT_URL=mqtts:\/\/host:8883$/m);
+ expect(envContent).toMatch(/^MQTT_USER=printservice$/m);
+ expect(envContent).toMatch(/^MQTT_PASS=broker_pass$/m);
+ expect(envContent).toMatch(/^API_URL=https:\/\/host:443$/m);
+ expect(envContent).toMatch(/^SUMATRA_PATH=C:\\print-system\\tools\\SumatraPDF\.exe$/m);
+ });
+
  test('server 401 → throws with status, no .env write', async () => {
  const installPath = makeInstall(tmpDir);
  const envPath = path.join(tmpDir, '.env');

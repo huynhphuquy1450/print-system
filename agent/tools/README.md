@@ -44,4 +44,4 @@ File `SumatraPDF.exe` (và các DLL đi kèm) **KHÔNG** commit vào repo vì:
 - Có thể cần cập nhật version độc lập với code
 - Đã được `.gitignore` loại trừ
 
-Mỗi máy agent tự tải về khi cài đặt (xem `install-agent.ps1`).
+Mỗi máy agent tự tải về khi cài đặt (xem `../install.ps1`).

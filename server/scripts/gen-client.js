@@ -96,6 +96,18 @@ if (require.main === module) {
  client_secret: result.secret,
  client_name: result.name,
  created_at: new Date().toISOString(),
+ // Hạ tầng dùng chung cho agent (Windows). agent --register sẽ ghi thẳng vào .env nên
+ // máy chi nhánh không phải điền tay. Đường dẫn theo layout installer C:\print-system.
+ agent_env: {
+ MQTT_URL: config.mqtt.url,
+ MQTT_USER: config.mqtt.username,
+ MQTT_PASS: config.mqtt.password,
+ API_URL: config.server.publicUrl,
+ MQTT_CA_FILE: 'C:\\print-system\\root_ca.crt',
+ SUMATRA_PATH: 'C:\\print-system\\tools\\SumatraPDF.exe',
+ TMP_DIR: 'C:\\print-system\\agents\\agent-01\\tmp',
+ LOG_DIR: 'C:\\print-system\\logs',
+ },
  };
 
  const outputFile = process.env.OUTPUT_FILE;

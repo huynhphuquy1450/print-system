@@ -16,13 +16,20 @@ Node.js agent chạy trên Windows. Subscribe MQTT từ Print Service, nhận jo
 
 ## Cài đặt
 
-### Cài nhanh (1 máy mới, PowerShell as Admin)
+### Cài nhanh — installer trọn gói 1 phát (khuyến nghị)
+
+Cần 2 file từ HQ IT (distribute riêng, KHÔNG có trong repo):
+
+- `install.json` — HQ tạo bằng `OUTPUT_FILE=install.json node server/scripts/gen-client.js "<Tên client>"`.
+  File này chứa `client_id` + `client_secret` + khối `agent_env` (MQTT/API/đường dẫn) để agent ghi
+  thẳng vào `.env`, máy chi nhánh **không phải điền tay**.
+- `root_ca.crt` — Step-CA root (xem `CA_INSTALL.md`).
 
 ```powershell
-# 1. Copy folder print-agent-clean/ sang may moi
-# 2. Chay script cai (neu co)
-powershell -ExecutionPolicy Bypass -File .\install-agent.ps1
-# Nhap: branch_id, agent_token, mqtt_user, mqtt_pass, printer_name khi duoc hoi
+# Copy cả thư mục agent + install.json + root_ca.crt sang máy chi nhánh, rồi:
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -InstallJson .\install.json
+# Script tự: nâng quyền UAC, kiểm tra Node, tải SumatraPDF + NSSM, cài root CA,
+# npm install, hỏi "Tên chi nhánh / Địa điểm", cài + chạy Windows service, smoke test.
 ```
 
 ### Cài thủ công
@@ -50,7 +57,8 @@ print-agent/
 ├── docs/
 │   ├── README.md            # Huong dan day du
 │   └── ARCHITECTURE.md      # Kien truc
-└── ca.crt                   # (tai thu cong tu VPS, khong commit)
+├── install.ps1              # Installer tron goi 1 phat (UAC)
+└── root_ca.crt              # (distribute rieng tu HQ IT, khong commit)
 ```
 
 ## Yêu cầu
@@ -83,7 +91,7 @@ AGENT_TOKEN=<paste_from_secret_manager>
 MQTT_URL=mqtts://<server_host>:8883
 MQTT_USER=<mqtt_user>
 MQTT_PASS=<mqtt_pass>
-MQTT_CA_FILE=C:\print-system\ca.crt
+MQTT_CA_FILE=C:\print-system\root_ca.crt
 API_URL=http://<server_host>:3000
 SUMATRA_PATH=C:\print-system\tools\SumatraPDF.exe
 TMP_DIR=C:\print-system\agents\agent-01\tmp
