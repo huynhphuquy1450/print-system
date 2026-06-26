@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { listBranches, listPrinters } from '../api/client.js';
+import { listBranches, listPrinters, updateBranch } from '../api/client.js';
 import { useToast } from '../ui/ToastContext.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import Spinner from '../components/Spinner.jsx';
+import Modal from '../components/Modal.jsx';
+import Field from '../components/Field.jsx';
 import styles from './StationsPage.module.css';
 
 const FRESH_MS = 60_000;
@@ -32,6 +34,12 @@ export default function StationsPage() {
   const { toast } = useToast();
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // State cho modal đổi tên trạm
+  const [editBranch, setEditBranch] = useState(null);
+  const [editForm, setEditForm] = useState({ name: '', location: '' });
+  const [editErrors, setEditErrors] = useState({});
+  const [editLoading, setEditLoading] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -61,6 +69,36 @@ export default function StationsPage() {
     return () => clearInterval(id);
   }, [fetchAll]);
 
+  function handleOpenEdit(branch) {
+    setEditBranch(branch);
+    setEditForm({ name: branch.name, location: branch.location || '' });
+    setEditErrors({});
+  }
+
+  async function handleEditSubmit(e) {
+    e.preventDefault();
+    const name = editForm.name.trim();
+    if (!name) {
+      setEditErrors({ name: 'Tên trạm không được để trống' });
+      return;
+    }
+    if (name.length > 100) {
+      setEditErrors({ name: 'Tên trạm không được quá 100 ký tự' });
+      return;
+    }
+    setEditLoading(true);
+    try {
+      await updateBranch(editBranch.id, { name, location: editForm.location.trim() });
+      setEditBranch(null);
+      toast('Đã đổi tên trạm', 'success');
+      fetchAll();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setEditLoading(false);
+    }
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -88,6 +126,12 @@ export default function StationsPage() {
               <div className={styles.cardTitle}>
                 <span className={styles.branchName}>{branch.name}</span>
                 <StatusBadge status={isOnline(branch.last_seen_at) ? 'online' : 'offline'} />
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => handleOpenEdit(branch)}
+                >
+                  Đổi tên
+                </button>
               </div>
               {branch.location && (
                 <span className={styles.cardLocation}>{branch.location}</span>
@@ -115,6 +159,61 @@ export default function StationsPage() {
           </div>
         ))}
       </div>
+
+      {/* Modal đổi tên trạm */}
+      <Modal
+        open={editBranch !== null}
+        title="Đổi tên trạm"
+        onClose={() => { if (!editLoading) setEditBranch(null); }}
+        footer={
+          <>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setEditBranch(null)}
+              disabled={editLoading}
+            >
+              Hủy
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={editLoading}
+              onClick={handleEditSubmit}
+            >
+              {editLoading ? 'Đang lưu…' : 'Lưu'}
+            </button>
+          </>
+        }
+      >
+        <form onSubmit={handleEditSubmit} noValidate>
+          <Field
+            label="Tên trạm"
+            htmlFor="edit-branch-name"
+            required
+            error={editErrors.name}
+          >
+            <input
+              id="edit-branch-name"
+              type="text"
+              className="input"
+              value={editForm.name}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+            />
+          </Field>
+          <Field
+            label="Vị trí"
+            htmlFor="edit-branch-location"
+            error={editErrors.location}
+          >
+            <input
+              id="edit-branch-location"
+              type="text"
+              className="input"
+              value={editForm.location}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, location: e.target.value }))}
+            />
+          </Field>
+        </form>
+      </Modal>
     </div>
   );
 }
