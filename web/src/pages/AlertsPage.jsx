@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { listBranches, listAlerts } from '../api/client.js';
+import { Trash2 } from 'lucide-react';
+import { listBranches, listAlerts, deleteAlert } from '../api/client.js';
 import { useToast } from '../ui/ToastContext.jsx';
 import DataTable from '../components/DataTable.jsx';
 import Pagination from '../components/Pagination.jsx';
@@ -7,6 +8,7 @@ import Field from '../components/Field.jsx';
 import FilterBar from '../components/FilterBar.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import Spinner from '../components/Spinner.jsx';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import styles from './AlertsPage.module.css';
 
 const EMPTY_FILTER = { alert_type: '', branch_id: '', from: '', to: '' };
@@ -40,6 +42,8 @@ export default function AlertsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const branchMap = Object.fromEntries(branches.map((b) => [String(b.id), b.name]));
 
@@ -89,6 +93,21 @@ export default function AlertsPage() {
     setPagination({ limit: 50, offset: 0 });
   }
 
+  async function handleConfirmDelete() {
+    const idToDelete = confirmDeleteId;
+    setDeletingId(idToDelete);
+    setConfirmDeleteId(null);
+    try {
+      await deleteAlert(idToDelete);
+      toast('Đã xóa cảnh báo', 'success');
+      fetchAlerts();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   function updateDraft(key, value) {
     setFilterDraft((prev) => ({ ...prev, [key]: value }));
   }
@@ -126,6 +145,21 @@ export default function AlertsPage() {
       key: 'status',
       header: 'Trạng thái',
       render: (val) => val || '—',
+    },
+    {
+      key: '_actions',
+      header: 'Hành động',
+      render: (_, row) => (
+        <button
+          className="btn btn-danger"
+          style={{ fontSize: 'var(--font-size-sm)', padding: 'var(--space-1) var(--space-2)' }}
+          disabled={deletingId === row.id}
+          onClick={() => setConfirmDeleteId(row.id)}
+        >
+          <Trash2 size={14} />
+          Xóa
+        </button>
+      ),
     },
   ];
 
@@ -220,6 +254,16 @@ export default function AlertsPage() {
           {error}
         </p>
       )}
+
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="Xóa cảnh báo"
+        message="Bạn có chắc muốn xóa cảnh báo này? Hành động không thể hoàn tác."
+        confirmText="Xóa"
+        danger
+        onCancel={() => setConfirmDeleteId(null)}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }

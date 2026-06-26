@@ -351,6 +351,8 @@ const stmts = {
  INSERT INTO alerts (client_id, branch_id, printer_id, alert_type, status, created_at)
  VALUES (@client_id, @branch_id, @printer_id, @alert_type, @status, @created_at)
  `),
+ deleteAlertsOlderThan: buildStmt('deleteAlertsOlderThan', `DELETE FROM alerts WHERE created_at < @cutoff`),
+ deleteAlertForClient: buildStmt('deleteAlertForClient', `DELETE FROM alerts WHERE id = @id AND (client_id = @client_id OR branch_id IN (SELECT id FROM branches WHERE client_id = @client_id))`),
 
  // Audit log
  insertAudit: buildStmt('insertAudit', `

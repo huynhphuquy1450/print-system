@@ -40,4 +40,17 @@ router.get('/', verifyClient, async (req, res, next) => {
   }
 });
 
+/**
+ * DELETE /api/v2/alerts/:id (Client JWT) — xóa 1 alert thuộc tenant của client.
+ */
+router.delete('/:id', verifyClient, async (req, res, next) => {
+  try {
+    const deleted = await alertService.remove({ id: req.params.id, clientId: req.client.id });
+    if (deleted === 0) return res.status(404).json({ error: 'Alert không tồn tại' });
+    res.status(204).end();
+  } catch (e) {
+    next(e);
+  }
+});
+
 module.exports = router;

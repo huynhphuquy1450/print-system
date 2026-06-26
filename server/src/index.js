@@ -8,6 +8,7 @@ const httpsServer = require('./https-server');
 const retryStale = require('./jobs/retry-stale');
 const cleanupFiles = require('./jobs/cleanup-files');
 const purgeAuditLog = require('./jobs/purge-audit-log');
+const purgeAlerts = require('./jobs/purge-alerts');
 const backupDb = require('./jobs/backup-db');
 const markOffline = require('./jobs/mark-offline');
 const { db, pool } = require('./db');
@@ -48,6 +49,7 @@ async function start() {
  retryStale.start();
  cleanupFiles.start();
  purgeAuditLog.start();
+ purgeAlerts.start();
  backupDb.start();
  markOffline.start();
 
@@ -68,6 +70,7 @@ async function shutdown(signal) {
  retryStale.stop();
  cleanupFiles.stop();
  purgeAuditLog.stop();
+ purgeAlerts.stop();
  backupDb.stop();
  markOffline.stop();
 
