@@ -30,10 +30,11 @@ const config = {
 
  storage: {
  path: optional('STORAGE_PATH', './storage'),
+ // retentionDays: sau N ngày, cron cleanup-files MOVE job sang jobs_archive + xóa PDF (giữ lịch sử mãi). <=0 = tắt.
  retentionDays: parseInt(optional('STORAGE_RETENTION_DAYS', '7'), 10),
  },
 
- // Audit log retention (HM5): purge dòng audit_log cũ hơn N ngày (chạy cùng giờ cleanup).
+ // Audit log retention: sau N ngày, cron purge-audit-log MOVE dòng sang audit_log_archive (giữ mãi). <=0 = tắt.
  audit: {
  retentionDays: parseInt(optional('AUDIT_RETENTION_DAYS', '90'), 10),
  },

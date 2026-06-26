@@ -10,13 +10,16 @@ let lastRunDate = null;
 let checkInterval = null;
 
 /**
- * Cron: mỗi giờ kiểm tra; nếu đúng CLEANUP_HOUR thì tìm các job printed/failed
- * cũ hơn retention và xóa PDF + row + ghi audit trong 1 transaction per job.
+ * Cron: mỗi giờ kiểm tra; nếu đúng CLEANUP_HOUR thì tìm các job printed/failed cũ hơn retention,
+ * xóa PDF rồi MOVE job sang jobs_archive (archive full row + ghi cleanup_audit + xóa khỏi jobs) —
+ * lưu lịch sử "mãi mãi" thay vì xóa mất. Tất cả trong 1 transaction per job.
  * Per-job transaction preserved from the original SQLite-based design — if any
- * single job's audit/delete fails, only that job is rolled back, others commit.
+ * single job's archive/audit/delete fails, only that job is rolled back, others commit.
+ * STORAGE_RETENTION_DAYS <= 0 = tắt (giữ cả PDF + row trong jobs).
  */
 async function run() {
  try {
+ if (config.storage.retentionDays <= 0) return;
  const now = new Date();
  const hour = now.getHours();
  // Chỉ chạy đúng giờ CLEANUP_HOUR, 1 lần/ngày
@@ -55,6 +58,7 @@ async function run() {
  try {
  // Audit + job delete trong 1 transaction: nếu audit throw, delete roll back.
  await db.transaction(async (tx) => {
+ await tx.stmts.archiveJobById.run({ id: job.id, archived_at: Date.now() });
  await audit.record(tx, {
  job_id: job.id,
  file_path: job.file_path,
@@ -75,7 +79,7 @@ async function run() {
  }
 
  logger.info('Cleanup completed', {
- jobs_deleted: deleted,
+ jobs_archived: deleted,
  files_deleted: filesDeleted,
  retention_days: config.storage.retentionDays,
  });
