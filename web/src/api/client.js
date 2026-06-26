@@ -81,6 +81,9 @@ export const login = (client_id, client_secret) =>
 
 export const me = () => request('/api/auth/me');
 
+// ── Config (public) ───────────────────────────────
+export const getConfig = () => request('/api/v1/config');
+
 // ── Branches ──────────────────────────────────────
 export const listBranches = () => request('/api/v1/branches');
 
@@ -134,6 +137,7 @@ export const deleteWebhook = (id) =>
 const api = {
   login,
   me,
+  getConfig,
   listBranches,
   updateBranch,
   listPrinters,
