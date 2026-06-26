@@ -13,7 +13,7 @@ jest.mock('../../db', () => ({
  getBranchById: { get: jest.fn() },
  getBranchByClientAndName: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
  insertBranch: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
- listBranches: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
+ listBranchesByClient: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
  updateBranchToken: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
  updateBranchStatus: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
  updateBranch: { run: jest.fn() },
@@ -117,5 +117,55 @@ describe('PATCH /api/v1/branches/:id', () => {
 
  expect(res.status).toBe(409);
  expect(res.body.error).toContain('đã tồn tại');
+ });
+});
+
+describe('GET /api/v1/branches', () => {
+ test('200: trả danh sách branches của client', async () => {
+ stmts.listBranchesByClient.all.mockResolvedValue([
+ { id: 'br_1', name: 'Branch 1', location: 'HCM', status: 'offline', last_seen_at: null, created_at: 1000 },
+ ]);
+
+ const res = await request(app).get('/api/v1/branches');
+
+ expect(res.status).toBe(200);
+ expect(res.body.branches).toHaveLength(1);
+ expect(stmts.listBranchesByClient.all).toHaveBeenCalledWith({ client_id: 'c1' });
+ });
+});
+
+describe('POST /api/v1/branches', () => {
+ test('201: insertBranch.run được gọi với client_id của client', async () => {
+ stmts.insertBranch.run.mockResolvedValue({});
+
+ const res = await request(app)
+ .post('/api/v1/branches')
+ .send({ name: 'New Branch' });
+
+ expect(res.status).toBe(201);
+ expect(stmts.insertBranch.run).toHaveBeenCalledWith(
+ expect.objectContaining({ client_id: 'c1' })
+ );
+ });
+});
+
+describe('GET /api/v1/branches/:id', () => {
+ test('403: branch thuộc client khác', async () => {
+ stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', client_id: 'c2', name: 'Cũ', location: 'HCM' });
+
+ const res = await request(app).get('/api/v1/branches/br_1');
+
+ expect(res.status).toBe(403);
+ });
+});
+
+describe('POST /api/v1/branches/:id/regen-token', () => {
+ test('403: branch thuộc client khác → updateBranchToken không được gọi', async () => {
+ stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', client_id: 'c2', name: 'Cũ' });
+
+ const res = await request(app).post('/api/v1/branches/br_1/regen-token');
+
+ expect(res.status).toBe(403);
+ expect(stmts.updateBranchToken.run).not.toHaveBeenCalled();
  });
 });

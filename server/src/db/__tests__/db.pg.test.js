@@ -793,4 +793,18 @@ describe('db.js (pg-mem integration)', () => {
  expect(Number(c2.branch_count)).toBe(0);
  await pool.end();
  });
+
+ test('listBranchesByClient chỉ trả branches của đúng client', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({ id: 'c1', name: 'Client1', secret_hash: 'h1', is_active: 1, created_at: now });
+ await stmts.insertClient.run({ id: 'c2', name: 'Client2', secret_hash: 'h2', is_active: 1, created_at: now });
+ await stmts.insertBranch.run({ id: 'br_a', name: 'Branch A', location: null, client_id: 'c1', agent_token_hash: 'tok_a', created_at: now });
+ await stmts.insertBranch.run({ id: 'br_b', name: 'Branch B', location: null, client_id: 'c2', agent_token_hash: 'tok_b', created_at: now });
+ const rows = await stmts.listBranchesByClient.all({ client_id: 'c1' });
+ expect(rows).toHaveLength(1);
+ expect(rows[0].id).toBe('br_a');
+ await pool.end();
+ });
 });

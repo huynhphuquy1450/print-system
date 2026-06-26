@@ -9,7 +9,7 @@ const mockVerifyAgent = jest.fn((req, _res, next) => {
 });
 
 jest.mock('../../middleware/auth', () => ({
- verifyClient: (req, _res, next) => next(),
+ verifyClient: (req, _res, next) => { req.client = { id: 'cl_001' }; next(); },
  verifyAgent: (...args) => mockVerifyAgent(...args),
 }));
 
@@ -164,6 +164,8 @@ describe('PATCH /api/printers/:id', () => {
  const printer = { id: 'prn_001', branch_id: 'br_001', name: 'HP-001', is_default: 0, approved: 0, source: 'discovered' };
  const updated = { ...printer, approved: 1 };
  mockGetPrinterById.mockResolvedValueOnce(printer).mockResolvedValueOnce(updated);
+ const { stmts: mockStmts } = require('../../db');
+ mockStmts.getBranchById.get.mockResolvedValueOnce({ id: 'br_001', client_id: 'cl_001' });
  mockSetPrinterApproved.mockResolvedValue({ rowCount: 1 });
 
  const res = await request(app)
@@ -180,6 +182,8 @@ describe('PATCH /api/printers/:id', () => {
  const otherPrinter = { id: 'prn_003', branch_id: 'br_001', name: 'HP-003', is_default: 1, approved: 1 };
  const updated = { ...printer, is_default: 1 };
  mockGetPrinterById.mockResolvedValueOnce(printer).mockResolvedValueOnce(updated);
+ const { stmts: mockStmts } = require('../../db');
+ mockStmts.getBranchById.get.mockResolvedValueOnce({ id: 'br_001', client_id: 'cl_001' });
  mockListPrintersByBranch.mockResolvedValue([printer, otherPrinter]);
  mockSetPrinterDefault.mockResolvedValue({ rowCount: 1 });
  mockDbQuery.mockResolvedValue({ rowCount: 1 });
@@ -211,7 +215,7 @@ describe('PATCH /api/printers/:id', () => {
 describe('POST /api/printers (manual)', () => {
  test('POST manual → response có approved:1, source:manual', async () => {
  const { stmts: mockStmts } = require('../../db');
- mockStmts.getBranchById.get.mockResolvedValue({ id: 'br_001', name: 'Branch' });
+ mockStmts.getBranchById.get.mockResolvedValue({ id: 'br_001', name: 'Branch', client_id: 'cl_001' });
  mockStmts.insertPrinter.run.mockResolvedValue({ rowCount: 1 });
  mockListPrintersByBranch.mockResolvedValue([]);
 
@@ -319,5 +323,55 @@ describe('POST /api/printers/heartbeat – alert wiring (TASK 7)', () => {
  expect(res.status).toBe(200);
  expect(res.body).toEqual({ ok: true, updated: 0, discovered: 1 });
  expect(mockAlertEmit).not.toHaveBeenCalled();
+ });
+});
+
+describe('Tenant 403 - ownership checks', () => {
+ test('GET /api/printers?branch_id=X với branch của client khác → 403', async () => {
+ const { stmts: mockStmts } = require('../../db');
+ mockStmts.getBranchById.get.mockResolvedValueOnce({ id: 'br_x', client_id: 'cl_002' });
+
+ const res = await request(app).get('/api/printers?branch_id=br_x');
+
+ expect(res.status).toBe(403);
+ expect(mockListPrintersByBranch).not.toHaveBeenCalled();
+ });
+
+ test('POST /api/printers với branch của client khác → 403, insertPrinter không gọi', async () => {
+ const { stmts: mockStmts } = require('../../db');
+ mockStmts.getBranchById.get.mockResolvedValueOnce({ id: 'br_x', client_id: 'cl_002' });
+
+ const res = await request(app)
+ .post('/api/printers')
+ .send({ branch_id: 'br_x', name: 'Printer X' });
+
+ expect(res.status).toBe(403);
+ expect(mockStmts.insertPrinter.run).not.toHaveBeenCalled();
+ });
+
+ test('PATCH /api/printers/:id với branch của client khác → 403, setPrinterApproved không gọi', async () => {
+ const printer = { id: 'prn_x', branch_id: 'br_x', name: 'HP-X', is_default: 0, approved: 0 };
+ mockGetPrinterById.mockResolvedValueOnce(printer);
+ const { stmts: mockStmts } = require('../../db');
+ mockStmts.getBranchById.get.mockResolvedValueOnce({ id: 'br_x', client_id: 'cl_002' });
+
+ const res = await request(app)
+ .patch('/api/printers/prn_x')
+ .send({ approved: 1 });
+
+ expect(res.status).toBe(403);
+ expect(mockSetPrinterApproved).not.toHaveBeenCalled();
+ });
+
+ test('DELETE /api/printers/:id với branch của client khác → 403, deletePrinter không gọi', async () => {
+ const printer = { id: 'prn_x', branch_id: 'br_x', name: 'HP-X' };
+ mockGetPrinterById.mockResolvedValueOnce(printer);
+ const { stmts: mockStmts } = require('../../db');
+ mockStmts.getBranchById.get.mockResolvedValueOnce({ id: 'br_x', client_id: 'cl_002' });
+
+ const res = await request(app).delete('/api/printers/prn_x');
+
+ expect(res.status).toBe(403);
+ expect(mockStmts.deletePrinter.run).not.toHaveBeenCalled();
  });
 });

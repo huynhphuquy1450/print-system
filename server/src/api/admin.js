@@ -39,6 +39,7 @@ router.post(
  await stmts.insertBranch.run({
  id,
  name,
+ client_id: req.client.id,
  location: null,
  agent_token_hash: hashAgentToken(token),
  created_at: Date.now(),
