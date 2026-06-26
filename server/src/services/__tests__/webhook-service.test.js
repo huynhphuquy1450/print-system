@@ -100,6 +100,85 @@ describe('dispatch', () => {
   });
 });
 
+describe('dispatchAlert', () => {
+  test('không có clientId → return sớm, không query DB / fetch', async () => {
+    await webhookService.dispatchAlert({ alertType: 'branch_offline', branchId: 'br_1', status: 'offline' });
+    expect(stmts.listActiveWebhooksByClient.all).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('hook có event "alert" → fetch đúng URL; body có event/alert_type/printer_id/branch_id/status; không có job_id', async () => {
+    global.fetch.mockResolvedValue({ ok: true, status: 200 });
+    stmts.listActiveWebhooksByClient.all.mockResolvedValue([
+      { id: 'wh_a', url: 'https://erp.example/alert', secret: 'sec', events: 'alert' },
+      { id: 'wh_b', url: 'https://erp.example/job', secret: 'sec', events: 'job.status' },
+    ]);
+
+    await webhookService.dispatchAlert({
+      clientId: 'cl_1',
+      alertType: 'printer_offline',
+      branchId: 'br_1',
+      printerId: 'pr_1',
+      status: 'offline',
+    });
+    // fire-and-forget — chờ microtask để deliver gọi fetch
+    await new Promise((r) => setImmediate(r));
+
+    expect(stmts.listActiveWebhooksByClient.all).toHaveBeenCalledWith({ client_id: 'cl_1' });
+    // chỉ hook có event 'alert' được gửi
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch.mock.calls[0][0]).toBe('https://erp.example/alert');
+
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      event: 'alert',
+      alert_type: 'printer_offline',
+      printer_id: 'pr_1',
+      branch_id: 'br_1',
+      status: 'offline',
+    });
+    expect(body).not.toHaveProperty('job_id');
+  });
+
+  test('hook có events "job.status,alert" (CSV) → fetch được gọi', async () => {
+    global.fetch.mockResolvedValue({ ok: true, status: 200 });
+    stmts.listActiveWebhooksByClient.all.mockResolvedValue([
+      { id: 'wh_c', url: 'https://erp.example/multi', secret: 'sec', events: 'job.status,alert' },
+    ]);
+
+    await webhookService.dispatchAlert({
+      clientId: 'cl_2',
+      alertType: 'branch_offline',
+      branchId: 'br_2',
+      status: 'offline',
+    });
+    await new Promise((r) => setImmediate(r));
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.event).toBe('alert');
+  });
+
+  test('hook chỉ có events "job.status" → KHÔNG gọi fetch', async () => {
+    global.fetch.mockResolvedValue({ ok: true, status: 200 });
+    stmts.listActiveWebhooksByClient.all.mockResolvedValue([
+      { id: 'wh_d', url: 'https://erp.example/cb', secret: 'sec', events: 'job.status' },
+    ]);
+
+    await webhookService.dispatchAlert({ clientId: 'cl_3', alertType: 'branch_offline', branchId: 'br_3', status: 'offline' });
+    await new Promise((r) => setImmediate(r));
+
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('lỗi DB khi list → nuốt, không ném', async () => {
+    stmts.listActiveWebhooksByClient.all.mockRejectedValue(new Error('db down'));
+    await expect(
+      webhookService.dispatchAlert({ clientId: 'cl_1', alertType: 'branch_offline', branchId: 'br_1', status: 'offline' }),
+    ).resolves.toBeUndefined();
+  });
+});
+
 describe('SSRF guard', () => {
   test('isPrivateIp: nhận diện loopback/private/link-local/ULA', () => {
     for (const ip of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '::1', 'fd00::1', 'fe80::1']) {

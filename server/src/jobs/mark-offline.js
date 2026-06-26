@@ -3,6 +3,7 @@
 const config = require('../config');
 const logger = require('../logger');
 const { stmts } = require('../db');
+const alertService = require('../services/alert-service');
 
 let interval = null;
 let running = false;
@@ -17,12 +18,20 @@ async function run() {
 
  try {
  const cutoff = Date.now() - config.presence.offlineMs;
- const br = await stmts.markOfflineBranches.run({ cutoff });
- const pr = await stmts.markOfflinePrinters.run({ cutoff });
- if (br.rowCount > 0 || pr.rowCount > 0) {
+ // Dùng .all() để lấy danh sách rows flip offline → bắn alert từng row
+ const brRows = await stmts.markOfflineBranches.all({ cutoff });
+ const prRows = await stmts.markOfflinePrinters.all({ cutoff });
+ for (const b of brRows) {
+ await alertService.emit({ clientId: b.client_id, branchId: b.id, alertType: 'branch.offline', status: 'offline' });
+ }
+ for (const p of prRows) {
+ const branch = await stmts.getBranchById.get(p.branch_id);
+ await alertService.emit({ clientId: branch ? branch.client_id : null, branchId: p.branch_id, printerId: p.id, alertType: 'printer.offline', status: 'offline' });
+ }
+ if (brRows.length > 0 || prRows.length > 0) {
  logger.info('Marked stale stations offline', {
- branches: br.rowCount,
- printers: pr.rowCount,
+ branches: brRows.length,
+ printers: prRows.length,
  offline_ms: config.presence.offlineMs,
  });
  }

@@ -495,4 +495,111 @@ describe('db.js (pg-mem integration)', () => {
  expect((await stmts.getPrinterById.get({ id: 'prn_off' })).status).toBe('offline');
  await pool.end();
  });
+
+ // TASK 7: RETURNING id, client_id — cron dùng .all() để lấy danh sách branch vừa flip
+ // nhằm ghi alert + bắn webhook. Test kiểm tra branch stale được trả về đúng trường.
+ test('markOfflineBranches.all() trả row có id + client_id của branch vừa flip', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertClient.run({
+ id: 'c_t7b', name: 'ClientT7B', secret_hash: 'h', is_active: 1, created_at: now,
+ });
+ // Branch stale — gắn client_id để xác minh RETURNING trả đúng giá trị
+ await stmts.insertBranch.run({
+ id: 'br_t7_stale', name: 'Stale T7', location: null,
+ client_id: 'c_t7b', agent_token_hash: 'tok_t7s', created_at: now,
+ });
+ await stmts.updateBranchStatus.run({ status: 'online', last_seen_at: now - 200_000, id: 'br_t7_stale' });
+ // Branch tươi — không bị flip, không xuất hiện trong kết quả
+ await stmts.insertBranch.run({
+ id: 'br_t7_fresh', name: 'Fresh T7', location: null,
+ client_id: 'c_t7b', agent_token_hash: 'tok_t7f', created_at: now,
+ });
+ await stmts.updateBranchStatus.run({ status: 'online', last_seen_at: now, id: 'br_t7_fresh' });
+
+ const rows = await stmts.markOfflineBranches.all({ cutoff: now - 120_000 });
+ expect(rows).toHaveLength(1);
+ expect(rows[0].id).toBe('br_t7_stale');
+ expect(rows[0].client_id).toBe('c_t7b');
+ await pool.end();
+ });
+
+ // TASK 7: RETURNING id, branch_id — cron dùng .all() để lấy danh sách printer vừa flip.
+ test('markOfflinePrinters.all() trả row có id + branch_id của printer vừa flip', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertBranch.run({
+ id: 'br_t7p', name: 'P Branch T7', location: null,
+ client_id: null, agent_token_hash: 'tok_t7p', created_at: now,
+ });
+ // Printer stale — sẽ bị flip, xuất hiện trong RETURNING
+ await stmts.insertPrinter.run({
+ id: 'prn_t7_stale', branch_id: 'br_t7p', name: 'P-T7-Stale',
+ is_default: 0, source: 'manual', approved: 1, created_at: now,
+ });
+ await stmts.updatePrinterStatus.run({ status: 'online', last_seen_at: now - 200_000, branch_id: 'br_t7p', name: 'P-T7-Stale' });
+ // Printer tươi — không bị flip
+ await stmts.insertPrinter.run({
+ id: 'prn_t7_fresh', branch_id: 'br_t7p', name: 'P-T7-Fresh',
+ is_default: 0, source: 'manual', approved: 1, created_at: now,
+ });
+ await stmts.updatePrinterStatus.run({ status: 'online', last_seen_at: now, branch_id: 'br_t7p', name: 'P-T7-Fresh' });
+
+ const rows = await stmts.markOfflinePrinters.all({ cutoff: now - 120_000 });
+ expect(rows).toHaveLength(1);
+ expect(rows[0].id).toBe('prn_t7_stale');
+ expect(rows[0].branch_id).toBe('br_t7p');
+ await pool.end();
+ });
+
+ // TASK 7: insertAlert ghi row vào bảng alerts, đọc lại bằng db.query xác minh đúng dữ liệu.
+ test('insertAlert ghi được row và đọc lại đúng các trường (TASK 7)', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertAlert.run({
+ client_id: 'cli_a1',
+ branch_id: 'br_a1',
+ printer_id: 'prn_a1',
+ alert_type: 'branch_offline',
+ status: 'offline',
+ created_at: now,
+ });
+ const r = await db.query('SELECT * FROM alerts WHERE client_id = $1', ['cli_a1']);
+ expect(r.rows).toHaveLength(1);
+ const row = r.rows[0];
+ expect(row.client_id).toBe('cli_a1');
+ expect(row.branch_id).toBe('br_a1');
+ expect(row.printer_id).toBe('prn_a1');
+ expect(row.alert_type).toBe('branch_offline');
+ expect(row.status).toBe('offline');
+ expect(row.created_at).toBe(now); // BIGINT → number
+ await pool.end();
+ });
+
+ // TASK 7: getPrinterByBranchAndName tra cứu printer theo branch_id + name.
+ test('getPrinterByBranchAndName trả đúng printer và null khi không có (TASK 7)', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertBranch.run({
+ id: 'br_bn', name: 'BN Branch', location: null,
+ agent_token_hash: 'tok_bn', created_at: now,
+ });
+ await stmts.insertPrinter.run({
+ id: 'prn_bn', branch_id: 'br_bn', name: 'HP-BN',
+ is_default: 0, source: 'manual', approved: 1, created_at: now,
+ });
+ const found = await stmts.getPrinterByBranchAndName.get({ branch_id: 'br_bn', name: 'HP-BN' });
+ expect(found).not.toBeNull();
+ expect(found.id).toBe('prn_bn');
+ expect(found.branch_id).toBe('br_bn');
+ expect(found.name).toBe('HP-BN');
+ // Tên không tồn tại → null
+ const notFound = await stmts.getPrinterByBranchAndName.get({ branch_id: 'br_bn', name: 'ghost' });
+ expect(notFound).toBeNull();
+ await pool.end();
+ });
 });
