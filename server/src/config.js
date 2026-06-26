@@ -69,6 +69,15 @@ const config = {
  backupHour: parseInt(optional('BACKUP_HOUR', '2'), 10),
  },
 
+ // Presence/offline detection (TASK 6+8). freshMs: web coi trạm là 'tươi' (UI, expose qua
+ // /api/v1/config). offlineMs: cron hạ status='offline' khi last_seen_at quá hạn (rộng hơn
+ // freshMs để tránh nhấp nháy khi agent trễ heartbeat). checkIntervalMs: tần suất cron quét.
+ presence: {
+ freshMs: parseInt(optional('PRESENCE_FRESH_MS', '60000'), 10),
+ offlineMs: parseInt(optional('PRESENCE_OFFLINE_MS', '120000'), 10),
+ checkIntervalMs: parseInt(optional('PRESENCE_CHECK_INTERVAL_MS', '30000'), 10),
+ },
+
  // Pluggable rate-limit store: set REDIS_URL → dùng Redis (counter chia sẻ giữa nhiều node).
  // Không set → in-process MemoryStore (đủ single-server). Chỉ cần khi scale ngang.
  redis: {
