@@ -660,4 +660,93 @@ describe('db.js (pg-mem integration)', () => {
  expect(notFound).toBeNull();
  await pool.end();
  });
+
+ // ── archive jobs + audit (feat/archive-jobs-audit) ──
+
+ test('archive tables (jobs_archive, audit_log_archive) tồn tại sau initSchema', async () => {
+ const { db, pool } = freshDbModule();
+ await db.initSchema();
+ // SELECT không throw chứng minh bảng đã được tạo
+ await expect(db.query('SELECT * FROM jobs_archive')).resolves.toBeDefined();
+ await expect(db.query('SELECT * FROM audit_log_archive')).resolves.toBeDefined();
+ await pool.end();
+ });
+
+ test('archiveJobById copy full row vào jobs_archive; deleteJobById không xóa archive', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ await stmts.insertBranch.run({
+ id: 'br_arch', name: 'Arch Branch', location: null,
+ agent_token_hash: 'tok_arch', created_at: now,
+ });
+ await stmts.insertJob.run({
+ id: 'job_arch_1', branch_id: 'br_arch', printer: null,
+ file_path: '/tmp/arch.pdf', metadata: '{"x":1}',
+ client_id: null, created_at: now,
+ });
+ const archivedAt = now + 1000;
+ await stmts.archiveJobById.run({ id: 'job_arch_1', archived_at: archivedAt });
+
+ // Archive có row khớp dữ liệu job
+ const archRes = await db.query('SELECT * FROM jobs_archive WHERE id = $1', ['job_arch_1']);
+ expect(archRes.rows).toHaveLength(1);
+ expect(archRes.rows[0].branch_id).toBe('br_arch');
+ expect(archRes.rows[0].file_path).toBe('/tmp/arch.pdf');
+ expect(archRes.rows[0].archived_at).toBe(archivedAt);
+
+ // Xóa khỏi jobs
+ await stmts.deleteJobById.run({ id: 'job_arch_1' });
+ const jobRes = await db.query('SELECT * FROM jobs WHERE id = $1', ['job_arch_1']);
+ expect(jobRes.rows).toHaveLength(0);
+
+ // Archive vẫn còn row (lưu mãi)
+ const archRes2 = await db.query('SELECT * FROM jobs_archive WHERE id = $1', ['job_arch_1']);
+ expect(archRes2.rows).toHaveLength(1);
+ await pool.end();
+ });
+
+ test('archiveOldAuditLogs move theo cutoff; deleteOldAuditLogs chỉ xóa audit_log gốc', async () => {
+ const { db, stmts, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ const base = { actor_type: 'client', actor_id: 'c', user_id: null, action: 'x',
+ resource_type: null, resource_id: null, method: 'POST', path: '/x',
+ status_code: 200, ip: '1.1.1.1', user_agent: 'j' };
+ await stmts.insertAudit.run({ ...base, at: now - 100000 }); // cũ — phải được archive
+ await stmts.insertAudit.run({ ...base, at: now });          // mới — giữ lại
+
+ const cutoff = now - 1000;
+ await stmts.archiveOldAuditLogs.run({ cutoff, archived_at: now });
+
+ // audit_log_archive có đúng 1 row (row cũ)
+ const archRes = await db.query('SELECT * FROM audit_log_archive');
+ expect(archRes.rows).toHaveLength(1);
+ expect(archRes.rows[0].at).toBe(now - 100000);
+
+ // Xóa row cũ khỏi audit_log gốc
+ await stmts.deleteOldAuditLogs.run({ cutoff });
+ const remain = await db.query('SELECT * FROM audit_log');
+ expect(remain.rows).toHaveLength(1);
+ expect(remain.rows[0].at).toBe(now);
+ await pool.end();
+ });
+
+ test('jobs_archive không có FK constraint — insert với branch/client không tồn tại phải thành công', async () => {
+ const { db, pool } = freshDbModule();
+ await db.initSchema();
+ const now = Date.now();
+ // Insert thẳng với branch_id và client_id "ma" không tồn tại trong bảng gốc
+ await expect(
+ db.query(
+ 'INSERT INTO jobs_archive (id, branch_id, client_id, archived_at) VALUES ($1, $2, $3, $4)',
+ ['ja_ghost', 'ghost_branch', 'ghost_client', now]
+ )
+ ).resolves.toBeDefined();
+ const r = await db.query('SELECT * FROM jobs_archive WHERE id = $1', ['ja_ghost']);
+ expect(r.rows).toHaveLength(1);
+ expect(r.rows[0].branch_id).toBe('ghost_branch');
+ expect(r.rows[0].client_id).toBe('ghost_client');
+ await pool.end();
+ });
 });

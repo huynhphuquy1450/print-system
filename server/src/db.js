@@ -74,6 +74,29 @@ const SCHEMA_SQL = `
  CREATE INDEX IF NOT EXISTS idx_jobs_status_sent_at ON jobs(status, sent_at);
  CREATE INDEX IF NOT EXISTS idx_printers_branch ON printers(branch_id);
 
+ -- Archive jobs (lưu lịch sử "mãi mãi"): cron cleanup-files move job printed/failed cũ hơn
+ -- retention sang đây (full row) + xóa PDF, thay vì xóa mất. CỐ Ý KHÔNG có foreign key
+ -- (khác bảng jobs) để lịch sử sống sót kể cả khi branch/client bị xóa.
+ CREATE TABLE IF NOT EXISTS jobs_archive (
+ id TEXT PRIMARY KEY,
+ branch_id TEXT,
+ printer TEXT,
+ file_path TEXT,
+ status TEXT,
+ metadata TEXT,
+ error TEXT,
+ created_at BIGINT,
+ sent_at BIGINT,
+ printed_at BIGINT,
+ failed_at BIGINT,
+ retry_count INTEGER,
+ client_id TEXT,
+ archived_at BIGINT NOT NULL
+ );
+
+ CREATE INDEX IF NOT EXISTS idx_jobs_archive_created ON jobs_archive(created_at DESC);
+ CREATE INDEX IF NOT EXISTS idx_jobs_archive_branch ON jobs_archive(branch_id);
+
  CREATE TABLE IF NOT EXISTS cleanup_audit (
  id SERIAL PRIMARY KEY,
  job_id TEXT NOT NULL,
@@ -109,6 +132,27 @@ const SCHEMA_SQL = `
  CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at DESC);
  CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id);
  CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+
+ -- Archive audit_log (lưu "mãi mãi"): cron purge-audit-log move dòng cũ hơn retention sang đây
+ -- thay vì xóa mất. KHÔNG foreign key (audit_log vốn cũng không có). id SERIAL riêng.
+ CREATE TABLE IF NOT EXISTS audit_log_archive (
+ id SERIAL PRIMARY KEY,
+ at BIGINT NOT NULL,
+ actor_type TEXT,
+ actor_id TEXT,
+ user_id TEXT,
+ action TEXT,
+ resource_type TEXT,
+ resource_id TEXT,
+ method TEXT,
+ path TEXT,
+ status_code INTEGER,
+ ip TEXT,
+ user_agent TEXT,
+ archived_at BIGINT NOT NULL
+ );
+
+ CREATE INDEX IF NOT EXISTS idx_audit_archive_at ON audit_log_archive(at DESC);
 
  -- Webhook ERP (HM4): ERP đăng ký URL callback nhận sự kiện job đổi trạng thái.
  -- secret dùng ký HMAC payload. events là CSV (hiện chỉ 'job.status').
@@ -327,6 +371,14 @@ const stmts = {
  WHERE status IN ('printed', 'failed') AND created_at < @cutoff
  `),
  deleteJobById: buildStmt('deleteJobById', `DELETE FROM jobs WHERE id = @id`),
+ archiveJobById: buildStmt('archiveJobById', `
+ INSERT INTO jobs_archive
+   (id, branch_id, printer, file_path, status, metadata, error,
+    created_at, sent_at, printed_at, failed_at, retry_count, client_id, archived_at)
+ SELECT id, branch_id, printer, file_path, status, metadata, error,
+    created_at, sent_at, printed_at, failed_at, retry_count, client_id, @archived_at::bigint
+ FROM jobs WHERE id = @id
+ `),
  recordCleanup: buildStmt('recordCleanup', `
  INSERT INTO cleanup_audit (job_id, file_path, branch_id, reason, deleted_at, size_bytes)
  VALUES (@job_id, @file_path, @branch_id, @reason, @deleted_at, @size_bytes)
@@ -362,6 +414,14 @@ const stmts = {
  (@at, @actor_type, @actor_id, @user_id, @action, @resource_type, @resource_id, @method, @path, @status_code, @ip, @user_agent)
  `),
  deleteOldAuditLogs: buildStmt('deleteOldAuditLogs', `DELETE FROM audit_log WHERE at < @cutoff`),
+ archiveOldAuditLogs: buildStmt('archiveOldAuditLogs', `
+ INSERT INTO audit_log_archive
+   (at, actor_type, actor_id, user_id, action, resource_type, resource_id,
+    method, path, status_code, ip, user_agent, archived_at)
+ SELECT at, actor_type, actor_id, user_id, action, resource_type, resource_id,
+    method, path, status_code, ip, user_agent, @archived_at::bigint
+ FROM audit_log WHERE at < @cutoff
+ `),
 };
 
 // Build a tx-bound statement set. Same shape as `stmts` but each call uses the
