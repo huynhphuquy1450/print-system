@@ -1,0 +1,2 @@
+# PowerShell scripts: keep UTF-8 BOM (required by PowerShell 5.1 for Unicode content)
+*.ps1 -text

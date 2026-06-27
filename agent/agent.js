@@ -22,17 +22,22 @@ if (REGISTER_MODE) {
  require('./register')(_installPath)
  .then((r) => {
  process.stderr.write(`\n✓ Registered as ${r.branch_id}\n✓ Saved to ${r.envPath}\n`);
- process.exit(0);
+ // setImmediate: thoát ở macro-task thay vì ngay trong Promise microtask để tránh
+ // race condition libuv win/async.c trên Windows Node 24 (STATUS_STACK_BUFFER_OVERRUN).
+ setImmediate(() => process.exit(0));
  })
  .catch((e) => {
  process.stderr.write(`✗ REGISTER_FAILED: ${e.message}\n`);
- process.exit(1);
+ setImmediate(() => process.exit(1));
  });
- // Không dùng top-level return (babel-jest cấm) — REGISTER_MODE skip env-validate + boot bên dưới.
+ // Không dùng top-level return (babel-jest cấm trong poll.test.js).
+ // mqtt/axios được require có điều kiện bên dưới để giữ sạch trong register mode.
 }
 
-const mqtt = require('mqtt');
-const axios = require('axios');
+// Không require mqtt/axios trong register mode: tránh libuv handle tồn tại khi
+// process.exit() gọi từ Promise .then() trên Windows (STATUS_STACK_BUFFER_OVERRUN).
+const mqtt = REGISTER_MODE ? null : require('mqtt');
+const axios = REGISTER_MODE ? null : require('axios');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -473,7 +478,9 @@ function shutdown(signal) {
  if (pollTimer) clearInterval(pollTimer);
  process.exit(0);
 }
-['SIGINT', 'SIGTERM', 'SIGHUP'].forEach(s => process.on(s, () => shutdown(s)));
+if (!REGISTER_MODE) {
+ ['SIGINT', 'SIGTERM', 'SIGHUP'].forEach(s => process.on(s, () => shutdown(s)));
+}
 
 // Boot — chỉ chạy khi thực thi trực tiếp (không khi require từ test, không khi --register)
 if (require.main === module && !REGISTER_MODE) {
