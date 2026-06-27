@@ -1,4 +1,4 @@
-# Self-elevating PowerShell script to install NSSM service
+﻿# Self-elevating PowerShell script to install NSSM service
 # Run this from normal PowerShell - it will re-launch itself elevated.
 #
 # Params (default = giá trị cũ → chạy không tham số vẫn y như trước):

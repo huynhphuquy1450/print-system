@@ -1,4 +1,4 @@
-# Health check for Print Agent
+﻿# Health check for Print Agent
 # Run this when something seems wrong
 
 $ErrorActionPreference = 'Continue'
