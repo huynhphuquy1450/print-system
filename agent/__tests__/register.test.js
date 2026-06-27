@@ -29,6 +29,8 @@ describe('agent --register', () => {
  });
  afterEach(() => {
  fs.rmSync(tmpDir, { recursive: true, force: true });
+ delete process.env.REGISTER_BRANCH_NAME;
+ delete process.env.REGISTER_LOCATION;
  });
 
  test('happy path: writes .env with correct keys', async () => {
@@ -116,6 +118,37 @@ describe('agent --register', () => {
  expect(envContent).toMatch(/^MQTT_PASS=broker_pass$/m);
  expect(envContent).toMatch(/^API_URL=https:\/\/host:443$/m);
  expect(envContent).toMatch(/^SUMATRA_PATH=C:\\print-system\\tools\\SumatraPDF\.exe$/m);
+ });
+
+ test('non-interactive: REGISTER_BRANCH_NAME/LOCATION env → bỏ qua readline, ghi .env', async () => {
+ const installPath = makeInstall(tmpDir);
+ const envPath = path.join(tmpDir, '.env');
+ process.env.REGISTER_BRANCH_NAME = 'Chi nhánh ENV';
+ process.env.REGISTER_LOCATION = 'Đà Nẵng';
+
+ const fakeFetch = jest.fn().mockResolvedValue({
+ ok: true,
+ status: 201,
+ json: async () => ({
+ branch_id: 'br_env',
+ agent_token: 'b'.repeat(64),
+ topic_prefix: 'company/printer',
+ }),
+ });
+
+ // readline mock sẽ throw nếu bị gọi — chứng minh nhánh env không chạm tới readline.
+ const fakeReadline = { createInterface: () => { throw new Error('readline không được gọi'); } };
+
+ const result = await register(installPath, { fetch: fakeFetch, readline: fakeReadline, envPath });
+
+ const body = JSON.parse(fakeFetch.mock.calls[0][1].body);
+ expect(body.branch_name).toBe('Chi nhánh ENV');
+ expect(body.location).toBe('Đà Nẵng');
+ expect(result.branch_id).toBe('br_env');
+
+ const envContent = fs.readFileSync(envPath, 'utf8');
+ expect(envContent).toMatch(/^BRANCH_ID=br_env$/m);
+ expect(envContent).toMatch(/^AGENT_TOKEN=b{64}$/m);
  });
 
  test('server 401 → throws with status, no .env write', async () => {

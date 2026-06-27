@@ -136,5 +136,6 @@ describe('POST /api/setup/register-branch', () => {
 
  expect(res.status).toBe(409);
  expect(res.body.error).toMatch(/already exists for this client/);
+ expect(res.body.branch_id).toBe('br_existing');
  });
 });
