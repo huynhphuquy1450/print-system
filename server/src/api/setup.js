@@ -84,6 +84,7 @@ router.post('/register-branch', registerLimiter, async (req, res, next) => {
  if (existing) {
  return res.status(409).json({
  error: `Branch '${branch_name}' already exists for this client`,
+ branch_id: existing.id,
  });
  }
  return res.status(409).json({ error: 'Branch id collision (retry)' });

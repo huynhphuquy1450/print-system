@@ -18,7 +18,16 @@ if (REGISTER_MODE) {
  console.error('Usage: agent --register <install.json>');
  process.exit(1);
  }
- require('./register')(_installPath);
+ // await + exit code rõ ràng; in ra stderr để không mất output khi chạy qua pipe (Windows).
+ require('./register')(_installPath)
+ .then((r) => {
+ process.stderr.write(`\n✓ Registered as ${r.branch_id}\n✓ Saved to ${r.envPath}\n`);
+ process.exit(0);
+ })
+ .catch((e) => {
+ process.stderr.write(`✗ REGISTER_FAILED: ${e.message}\n`);
+ process.exit(1);
+ });
  // Không dùng top-level return (babel-jest cấm) — REGISTER_MODE skip env-validate + boot bên dưới.
 }
 

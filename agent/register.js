@@ -16,7 +16,9 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const DEFAULT_ENV_PATH = path.join(__dirname, '..', '.env');
+// register.js + agent.js cùng nằm trong $AppDir; agent.js dùng dotenv.config() đọc cwd/.env
+// (cwd = $AppDir khi chạy service). Ghi .env cùng thư mục để hai bên khớp nhau.
+const DEFAULT_ENV_PATH = path.join(__dirname, '.env');
 
 function askQuestion(rl, question) {
  return new Promise((resolve) => rl.question(question, (a) => resolve(a.trim())));
@@ -69,6 +71,11 @@ async function register(installPath, deps = {}) {
  if (deps.injectPrompts) {
  branchName = deps.injectPrompts.branchName;
  location = deps.injectPrompts.location || '';
+ } else if (process.env.REGISTER_BRANCH_NAME) {
+ // Chế độ non-interactive (automation/CI): readline không đọc được stdin redirect trên
+ // một số môi trường (Node 24/Windows) → cho phép truyền qua biến môi trường.
+ branchName = process.env.REGISTER_BRANCH_NAME.trim();
+ location = (process.env.REGISTER_LOCATION || '').trim();
  } else {
  const rl = rlMod.createInterface({ input: process.stdin, output: process.stdout });
  try {

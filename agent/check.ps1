@@ -22,9 +22,12 @@ Write-Host ""
 
 # 2. Recent log lines
 Write-Host "2. Last 10 log lines (today/yesterday):" -ForegroundColor Yellow
-$logFile = "C:\print-system\logs\$(Get-Date -Format 'yyyy-MM-dd').log"
+# Agent đặt tên log theo UTC (toISOString) — dùng UtcNow để khớp, tránh false alarm lúc giao ngày.
+$today = [DateTime]::UtcNow.ToString('yyyy-MM-dd')
+$logFile = "C:\print-system\logs\$today.log"
 if (-not (Test-Path $logFile)) {
-  $logFile = "C:\print-system\logs\$(Get-Date).AddDays(-1).ToString('yyyy-MM-dd').log"
+  $yest = [DateTime]::UtcNow.AddDays(-1).ToString('yyyy-MM-dd')
+  $logFile = "C:\print-system\logs\$yest.log"
 }
 if (Test-Path $logFile) {
   Get-Content $logFile -Tail 10
