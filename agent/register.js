@@ -90,7 +90,7 @@ async function register(installPath, deps = {}) {
  // 3. POST to server
  const res = await fetchImpl(`${install.server_url}/api/setup/register-branch`, {
  method: 'POST',
- headers: { 'Content-Type': 'application/json' },
+ headers: { 'Content-Type': 'application/json', 'Connection': 'close' },
  body: JSON.stringify({
  client_id: install.client_id,
  client_secret: install.client_secret,
