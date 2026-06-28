@@ -41,7 +41,7 @@ const axios = REGISTER_MODE ? null : require('axios');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-require('dotenv').config();
+if (!REGISTER_MODE) require('dotenv').config();
 
 const BRANCH_ID = process.env.BRANCH_ID;
 const AGENT_TOKEN = process.env.AGENT_TOKEN;
