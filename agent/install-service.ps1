@@ -51,6 +51,9 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Forc
 Write-Host "Installing service..." -ForegroundColor Cyan
 & $NssmPath install $ServiceName $NodeExe $AgentScript
 & $NssmPath set $ServiceName AppDirectory $AppDir
+# B4: Node KHÔNG đọc Windows cert store → set NODE_EXTRA_CA_CERTS để service tin Step-CA khi gọi API
+# HTTPS nội bộ (axios cũng tự nạp CA này trong agent.js; đây là lớp phòng vệ thứ hai, bao cả fetch).
+& $NssmPath set $ServiceName AppEnvironmentExtra "NODE_EXTRA_CA_CERTS=$(Join-Path $AppDir 'root_ca.crt')"
 & $NssmPath set $ServiceName AppStdout (Join-Path $LogDir 'service-stdout.log')
 & $NssmPath set $ServiceName AppStderr (Join-Path $LogDir 'service-stderr.log')
 & $NssmPath set $ServiceName AppRotateFiles 1

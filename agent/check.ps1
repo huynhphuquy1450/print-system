@@ -1,5 +1,9 @@
 ﻿# Health check for Print Agent
 # Run this when something seems wrong
+param(
+  [string]$ServiceName = 'PrintAgent-br001',
+  [string]$AppDir = 'C:\print-system'
+)
 
 $ErrorActionPreference = 'Continue'
 
@@ -9,11 +13,11 @@ Write-Host ""
 
 # 1. Service status
 Write-Host "1. Windows Service Status:" -ForegroundColor Yellow
-$svc = Get-Service PrintAgent-br001 -ErrorAction SilentlyContinue
+$svc = Get-Service $ServiceName -ErrorAction SilentlyContinue
 if ($svc) {
   $svc | Format-List Name, Status, StartType
   if ($svc.Status -ne 'Running') {
-    Write-Host "  *** SERVICE NOT RUNNING! Try: nssm start PrintAgent-br001 ***" -ForegroundColor Red
+    Write-Host "  *** SERVICE NOT RUNNING! Try: nssm start $ServiceName ***" -ForegroundColor Red
   }
 } else {
   Write-Host "  Service not installed!" -ForegroundColor Red
@@ -24,10 +28,10 @@ Write-Host ""
 Write-Host "2. Last 10 log lines (today/yesterday):" -ForegroundColor Yellow
 # Agent đặt tên log theo UTC (toISOString) — dùng UtcNow để khớp, tránh false alarm lúc giao ngày.
 $today = [DateTime]::UtcNow.ToString('yyyy-MM-dd')
-$logFile = "C:\print-system\logs\$today.log"
+$logFile = Join-Path $AppDir "logs\$today.log"
 if (-not (Test-Path $logFile)) {
   $yest = [DateTime]::UtcNow.AddDays(-1).ToString('yyyy-MM-dd')
-  $logFile = "C:\print-system\logs\$yest.log"
+  $logFile = Join-Path $AppDir "logs\$yest.log"
 }
 if (Test-Path $logFile) {
   Get-Content $logFile -Tail 10
@@ -38,7 +42,7 @@ Write-Host ""
 
 # 3. Pending tmp files
 Write-Host "3. Pending tmp files:" -ForegroundColor Yellow
-$tmpDir = "C:\print-system\agents\agent-01\tmp"
+$tmpDir = Join-Path $AppDir 'agents\agent-01\tmp'
 $tmpFiles = Get-ChildItem "$tmpDir\*.pdf" -File -ErrorAction SilentlyContinue
 if ($tmpFiles) {
   $tmpFiles | Format-Table Name, @{N='Size(KB)';E={[math]::Round($_.Length/1KB,1)}}, LastWriteTime
