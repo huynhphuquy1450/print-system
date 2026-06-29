@@ -22,7 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { stmts } = require('../../src/db');
-const { createClient, writeInstallFile } = require('../gen-client');
+const { createClient, writeInstallFile, publicUrlIsLocalhost } = require('../gen-client');
 
 describe('gen-client (createClient + writeInstallFile)', () => {
  beforeEach(() => {
@@ -100,6 +100,22 @@ describe('gen-client (createClient + writeInstallFile)', () => {
  } finally {
  fs.rmSync(tmpDir, { recursive: true, force: true });
  }
+ });
+ });
+
+ describe('publicUrlIsLocalhost (B1 guard)', () => {
+ test('nhận diện localhost / 127.0.0.1 / 0.0.0.0 → true', () => {
+ expect(publicUrlIsLocalhost('http://localhost:3000')).toBe(true);
+ expect(publicUrlIsLocalhost('https://127.0.0.1:443')).toBe(true);
+ expect(publicUrlIsLocalhost('http://0.0.0.0:3000')).toBe(true);
+ expect(publicUrlIsLocalhost('http://localhost')).toBe(true);
+ });
+ test('URL server thật / rỗng → false', () => {
+ expect(publicUrlIsLocalhost('https://print.example.com')).toBe(false);
+ expect(publicUrlIsLocalhost('http://160.250.133.192:3000')).toBe(false);
+ expect(publicUrlIsLocalhost('http://localhost-evil.com')).toBe(false);
+ expect(publicUrlIsLocalhost('')).toBe(false);
+ expect(publicUrlIsLocalhost(undefined)).toBe(false);
  });
  });
 });
