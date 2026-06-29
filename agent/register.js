@@ -34,7 +34,9 @@ function updateEnvContent(currentContent, updates) {
  const re = new RegExp(`^${k}=.*$`, 'm');
  const line = `${k}=${v}`;
  if (re.test(out)) {
- out = out.replace(re, line);
+ // Hàm thay thế (() => line) thay vì chuỗi: tránh String.replace diễn giải $1/$&/$` trong
+ // value (vd MQTT_PASS chứa '$') khi re-register lên .env đã có sẵn key.
+ out = out.replace(re, () => line);
  } else {
  out += (out.length && !out.endsWith('\n') ? '\n' : '') + line + '\n';
  }
@@ -64,6 +66,17 @@ async function register(installPath, deps = {}) {
  if (!install.server_url || !install.client_id || !install.client_secret) {
  throw new Error('Install file missing required fields (server_url, client_id, client_secret)');
  }
+ // install.json phải mang khối agent_env (gen-client.js sinh sẵn) để .env đầy đủ. install.json
+ // cũ (trước khi có agent_env) sẽ ghi .env THIẾU MQTT_URL/API_URL... rồi service crash-loop lúc
+ // chạy ([FATAL] Missing env). Fail-fast ở đây với hướng dẫn rõ ràng thay vì lỗi mơ hồ runtime.
+ const REQUIRED_AGENT_ENV = ['MQTT_URL', 'MQTT_USER', 'MQTT_PASS', 'MQTT_CA_FILE', 'API_URL', 'SUMATRA_PATH'];
+ const missingEnv = REQUIRED_AGENT_ENV.filter((k) => !(install.agent_env || {})[k]);
+ if (missingEnv.length) {
+ throw new Error(
+ `install.json thiếu agent_env (${missingEnv.join(', ')}). ` +
+ 'Hãy tạo lại bằng: OUTPUT_FILE=install.json node scripts/gen-client.js "<tên client>"'
+ );
+ }
 
  // 2. Prompt for branch_name + location (or use injected values)
  let branchName;
@@ -88,7 +101,9 @@ async function register(installPath, deps = {}) {
  if (!branchName) throw new Error('branch_name required');
 
  // 3. POST to server
- const res = await fetchImpl(`${install.server_url}/api/setup/register-branch`, {
+ let res;
+ try {
+ res = await fetchImpl(`${install.server_url}/api/setup/register-branch`, {
  method: 'POST',
  headers: { 'Content-Type': 'application/json', 'Connection': 'close' },
  body: JSON.stringify({
@@ -97,7 +112,13 @@ async function register(installPath, deps = {}) {
  branch_name: branchName,
  location: location || undefined,
  }),
+ signal: AbortSignal.timeout(15000),
  });
+ } catch (e) {
+ // Lỗi mạng/TLS từ fetch: undici gói nguyên nhân thật trong e.cause (e.message thường chỉ
+ // "fetch failed"). Surface code/message gốc để IT phân biệt ECONNREFUSED vs lỗi TLS/timeout.
+ throw new Error(`Không kết nối được server (${install.server_url}): ${e.cause?.code || e.cause?.message || e.message}`);
+ }
 
  if (!res.ok) {
  const body = await res.json().catch(() => ({}));

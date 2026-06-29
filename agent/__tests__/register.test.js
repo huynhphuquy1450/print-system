@@ -16,6 +16,15 @@ function makeInstall(tmpDir) {
  client_secret: 'plaintext_secret',
  client_name: 'Acme Corp',
  created_at: '2026-06-24T16:00:00.000Z',
+ // gen-client.js luôn sinh agent_env → install.json thực tế đầy đủ key hạ tầng.
+ agent_env: {
+ MQTT_URL: 'mqtts://host:8883',
+ MQTT_USER: 'printservice',
+ MQTT_PASS: 'broker_pass',
+ MQTT_CA_FILE: 'C:\\print-system\\root_ca.crt',
+ API_URL: 'http://localhost:3000',
+ SUMATRA_PATH: 'C:\\print-system\\tools\\SumatraPDF.exe',
+ },
  };
  const p = path.join(tmpDir, 'install.json');
  fs.writeFileSync(p, JSON.stringify(install, null, 2));
@@ -227,5 +236,52 @@ describe('agent --register', () => {
  readline: fakeReadline,
  envPath,
  })).rejects.toThrow(/branch_name required/);
+ });
+
+ test('install.json THIẾU agent_env → throw hướng dẫn tạo lại, không gọi fetch / không ghi .env', async () => {
+ const install = {
+ server_url: 'http://localhost:3000',
+ client_id: 'cli_test_123',
+ client_secret: 'plaintext_secret',
+ }; // không có agent_env (install.json cũ)
+ const installPath = path.join(tmpDir, 'install.json');
+ fs.writeFileSync(installPath, JSON.stringify(install));
+ const envPath = path.join(tmpDir, '.env');
+ const fakeFetch = jest.fn();
+
+ await expect(register(installPath, {
+ fetch: fakeFetch,
+ injectPrompts: { branchName: 'B1' },
+ envPath,
+ })).rejects.toThrow(/agent_env/);
+
+ expect(fakeFetch).not.toHaveBeenCalled();
+ expect(fs.existsSync(envPath)).toBe(false);
+ });
+
+ test('re-register: value chứa $ ghi nguyên văn vào .env (không bị String.replace mangle)', async () => {
+ const installPath = makeInstall(tmpDir);
+ const envPath = path.join(tmpDir, '.env');
+ // .env đã có AGENT_TOKEN → đi nhánh replace (không phải append) — nơi dễ dính bug ký tự $.
+ fs.writeFileSync(envPath, 'AGENT_TOKEN=old_value\n');
+
+ const fakeFetch = jest.fn().mockResolvedValue({
+ ok: true,
+ status: 201,
+ json: async () => ({
+ branch_id: 'br_dollar',
+ agent_token: 'tok$1en$&special',
+ topic_prefix: 'company/printer',
+ }),
+ });
+
+ await register(installPath, {
+ fetch: fakeFetch,
+ injectPrompts: { branchName: 'B1' },
+ envPath,
+ });
+
+ const envContent = fs.readFileSync(envPath, 'utf8');
+ expect(envContent).toMatch(/^AGENT_TOKEN=tok\$1en\$&special$/m);
  });
 });

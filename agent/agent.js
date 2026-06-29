@@ -40,6 +40,7 @@ const mqtt = REGISTER_MODE ? null : require('mqtt');
 const axios = REGISTER_MODE ? null : require('axios');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const { spawn } = require('child_process');
 if (!REGISTER_MODE) require('dotenv').config();
 
@@ -56,6 +57,11 @@ const PRINTER_NAME = process.env.PRINTER_NAME; // optional, mặc định = Wind
 // Poll fallback: agent tự fetchPending mỗi POLL_INTERVAL giây, ĐỘC LẬP với MQTT (lưới an toàn
 // khi broker sập). Đơn vị giây, mặc định 15.
 const POLL_INTERVAL_MS = (parseInt(process.env.POLL_INTERVAL, 10) || 15) * 1000;
+// Topic prefix khớp server (config.mqtt.topicPrefix). Mặc định 'company/printer'; đọc từ env để
+// nếu HQ đổi prefix thì agent subscribe đúng topic (register.js ghi MQTT_TOPIC_PREFIX từ server).
+const TOPIC_PREFIX = process.env.MQTT_TOPIC_PREFIX || 'company/printer';
+// Xác thực cert MQTT: mặc định bật (true). Chỉ tắt khi MQTT_REJECT_UNAUTHORIZED=false (debug khẩn).
+const MQTT_REJECT_UNAUTHORIZED = process.env.MQTT_REJECT_UNAUTHORIZED !== 'false';
 
 // Validate required env (skip khi --register: agent chưa có các biến này lúc đăng ký lần đầu)
 if (!REGISTER_MODE) {
@@ -71,8 +77,29 @@ if (!REGISTER_MODE) {
 }
 
 const LOG_DIR = path.join(__dirname, 'logs');
-fs.mkdirSync(TMP_DIR, { recursive: true });
-fs.mkdirSync(LOG_DIR, { recursive: true });
+// Chỉ tạo thư mục khi chạy thật; register mode chưa có .env nên không cần (tránh side-effect thừa).
+if (!REGISTER_MODE) {
+ fs.mkdirSync(TMP_DIR, { recursive: true });
+ fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+// HTTPS agent cho call API: Node KHÔNG dùng Windows cert store, nên khi API_URL là HTTPS ký bởi
+// Step-CA nội bộ, axios sẽ fail TLS nếu thiếu CA. Nạp lại chính MQTT_CA_FILE (root_ca.crt mà
+// installer đã copy) làm CA mặc định cho axios → chạy đúng cả HTTP lẫn HTTPS+Step-CA, không cần
+// NODE_EXTRA_CA_CERTS. Bọc try/catch để không crash lúc load nếu CA chưa cài (connectMqtt() sẽ báo
+// lỗi rõ + exit(1) ở bước boot). Set qua axios.defaults nên mọi call (download/status/poll/heartbeat)
+// đều dùng — có guard axios.defaults để không vỡ unit test mock axios.
+let apiHttpsAgent;
+if (!REGISTER_MODE && MQTT_CA_FILE) {
+ try {
+ apiHttpsAgent = new https.Agent({ ca: fs.readFileSync(MQTT_CA_FILE) });
+ } catch (e) {
+ apiHttpsAgent = undefined;
+ }
+}
+if (apiHttpsAgent && axios && axios.defaults) {
+ axios.defaults.httpsAgent = apiHttpsAgent;
+}
 
 // Logger
 function log(level, msg, meta = {}) {
@@ -297,12 +324,15 @@ function connectMqtt() {
  process.exit(1);
  }
 
+ if (!MQTT_REJECT_UNAUTHORIZED) {
+ log('warn', 'MQTT_REJECT_UNAUTHORIZED=false — TẮT xác thực cert MQTT (chỉ để debug khẩn cấp, KHÔNG để ở production)');
+ }
  const client = mqtt.connect(MQTT_URL, {
  clientId: `agent-${BRANCH_ID}-${process.pid}`,
  username: MQTT_USER,
  password: MQTT_PASS,
  ca,
- rejectUnauthorized: true,
+ rejectUnauthorized: MQTT_REJECT_UNAUTHORIZED,
  reconnectPeriod: 5000,
  connectTimeout: 30000,
  keepalive: 60, // chống TCP half-open
@@ -311,7 +341,7 @@ function connectMqtt() {
 
  client.on('connect', async () => {
  log('info', 'MQTT connected', { url: MQTT_URL });
- const topic = `company/printer/${BRANCH_ID}/jobs`;
+ const topic = `${TOPIC_PREFIX}/${BRANCH_ID}/jobs`;
  client.subscribe(topic, { qos: 1 }, (err) => {
  if (err) {
  log('error', 'MQTT subscribe failed', { err: err.message });
@@ -423,17 +453,26 @@ async function probePrinters() {
         return resolve([]);
       }
       // ConvertTo-Json trả object đơn nếu chỉ có 1 máy in → chuẩn hoá về mảng
-      const printers = Array.isArray(parsed) ? parsed : [parsed];
+      const printersRaw = Array.isArray(parsed) ? parsed : [parsed];
+      // Bỏ máy in ảo của Windows (PDF/XPS/OneNote/Fax) — không phải máy in vật lý, chỉ làm nhiễu
+      // danh sách auto-discovery chờ HQ duyệt.
+      const VIRTUAL = /Microsoft Print to PDF|Microsoft XPS Document Writer|OneNote|Fax|PDF24|CutePDF/i;
+      const printers = printersRaw.filter(p => !VIRTUAL.test(p.Name || ''));
       const result = printers.map(p => {
         const name = p.Name || '(unknown)';
         // WorkOffline hoặc DetectedErrorState=9 → offline
         if (p.WorkOffline === true || p.DetectedErrorState === 9) return { name, status: 'offline' };
         switch (p.DetectedErrorState) {
-          case 2: return { name, status: 'online' };
           case 3: // Low Paper
           case 4: return { name, status: 'out_of_paper' }; // No Paper
           case 8: return { name, status: 'paper_jam' };
-          default: return { name, status: 'unknown' };
+          default:
+            // 2 = No Error; 0/null/undefined = driver không báo lỗi → coi như online (đang sẵn sàng).
+            if (p.DetectedErrorState === 2 || p.DetectedErrorState === 0
+                || p.DetectedErrorState === null || p.DetectedErrorState === undefined) {
+              return { name, status: 'online' };
+            }
+            return { name, status: 'unknown' };
         }
       });
       resolve(result);
