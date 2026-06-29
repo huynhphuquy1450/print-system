@@ -13,7 +13,7 @@ jest.mock('../../db', () => ({
  getBranchById: { get: jest.fn() },
  getBranchByClientAndName: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
  insertBranch: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
- listBranchesByClient: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
+ listAllBranches: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
  updateBranchToken: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
  updateBranchStatus: { get: jest.fn(), all: jest.fn(), run: jest.fn() },
  updateBranch: { run: jest.fn() },
@@ -75,15 +75,16 @@ describe('PATCH /api/v1/branches/:id', () => {
  expect(res.body.error).toBe('Branch not found');
  });
 
- test('403: branch thuộc client khác', async () => {
+ test('cho phép sửa branch của client khác (không scope)', async () => {
  stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', name: 'Cũ', location: 'HCM', client_id: 'c2' });
+ stmts.updateBranch.run.mockResolvedValue({ rowCount: 1 });
 
  const res = await request(app)
  .patch('/api/v1/branches/br_1')
  .send({ name: 'Mới' });
 
- expect(res.status).toBe(403);
- expect(stmts.updateBranch.run).not.toHaveBeenCalled();
+ expect(res.status).toBe(200);
+ expect(stmts.updateBranch.run).toHaveBeenCalled();
  });
 
  test('400: body rỗng → Cần ít nhất name hoặc location', async () => {
@@ -123,8 +124,8 @@ describe('PATCH /api/v1/branches/:id', () => {
 });
 
 describe('GET /api/v1/branches', () => {
- test('200: trả danh sách branches của client', async () => {
- stmts.listBranchesByClient.all.mockResolvedValue([
+ test('200: trả toàn bộ danh sách branches (không scope client)', async () => {
+ stmts.listAllBranches.all.mockResolvedValue([
  { id: 'br_1', name: 'Branch 1', location: 'HCM', status: 'offline', last_seen_at: null, created_at: 1000 },
  ]);
 
@@ -132,7 +133,7 @@ describe('GET /api/v1/branches', () => {
 
  expect(res.status).toBe(200);
  expect(res.body.branches).toHaveLength(1);
- expect(stmts.listBranchesByClient.all).toHaveBeenCalledWith({ client_id: 'c1' });
+ expect(stmts.listAllBranches.all).toHaveBeenCalled();
  });
 });
 
@@ -152,23 +153,24 @@ describe('POST /api/v1/branches', () => {
 });
 
 describe('GET /api/v1/branches/:id', () => {
- test('403: branch thuộc client khác', async () => {
+ test('cho phép xem branch của client khác (không scope)', async () => {
  stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', client_id: 'c2', name: 'Cũ', location: 'HCM' });
 
  const res = await request(app).get('/api/v1/branches/br_1');
 
- expect(res.status).toBe(403);
+ expect(res.status).toBe(200);
  });
 });
 
 describe('POST /api/v1/branches/:id/regen-token', () => {
- test('403: branch thuộc client khác → updateBranchToken không được gọi', async () => {
+ test('cho phép regen-token branch của client khác (không scope)', async () => {
  stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', client_id: 'c2', name: 'Cũ' });
+ stmts.updateBranchToken.run.mockResolvedValue({ rowCount: 1 });
 
  const res = await request(app).post('/api/v1/branches/br_1/regen-token');
 
- expect(res.status).toBe(403);
- expect(stmts.updateBranchToken.run).not.toHaveBeenCalled();
+ expect(res.status).toBe(200);
+ expect(stmts.updateBranchToken.run).toHaveBeenCalled();
  });
 });
 
@@ -208,15 +210,17 @@ describe('POST /api/v1/branches/:id/transfer-client', () => {
  expect(res.body.error).toBe('Branch not found');
  });
 
- test('403: branch thuộc client khác → không cập nhật', async () => {
+ test('cho phép chuyển branch của client khác (không scope)', async () => {
  stmts.getBranchById.get.mockResolvedValue({ id: 'br_1', name: 'Trạm', client_id: 'c2' });
+ stmts.getClientById.get.mockResolvedValue({ id: 'c3', is_active: 1 });
+ stmts.updateBranchClient.run.mockResolvedValue({ rowCount: 1 });
 
  const res = await request(app)
  .post('/api/v1/branches/br_1/transfer-client')
  .send({ target_client_id: 'c3' });
 
- expect(res.status).toBe(403);
- expect(stmts.updateBranchClient.run).not.toHaveBeenCalled();
+ expect(res.status).toBe(200);
+ expect(stmts.updateBranchClient.run).toHaveBeenCalled();
  });
 
  test('400: chuyển sang chính client hiện tại', async () => {

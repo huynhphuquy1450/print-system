@@ -12,7 +12,7 @@ const { validate } = require('../middleware/validate');
  */
 router.get('/', verifyClient, async (req, res, next) => {
  try {
- const rows = await stmts.listBranchesByClient.all({ client_id: req.client.id });
+ const rows = await stmts.listAllBranches.all();
  const branches = rows.map((b) => ({
  id: b.id,
  name: b.name,
@@ -79,7 +79,6 @@ router.get('/:id', verifyClient, async (req, res, next) => {
  try {
  const branch = await stmts.getBranchById.get(req.params.id);
  if (!branch) return res.status(404).json({ error: 'Branch not found' });
- if (branch.client_id !== req.client.id) return res.status(403).json({ error: 'Không có quyền xem trạm này' });
  // Strip token hash
  delete branch.agent_token_hash;
  res.json(branch);
@@ -94,7 +93,6 @@ router.post('/:id/regen-token', verifyClient, async (req, res, next) => {
  try {
  const branch = await stmts.getBranchById.get(req.params.id);
  if (!branch) return res.status(404).json({ error: 'Branch not found' });
- if (branch.client_id !== req.client.id) return res.status(403).json({ error: 'Không có quyền với trạm này' });
 
  // Audit: rotate agent token là sự kiện bảo mật — ghi rõ branch nào
  res.locals.audit = { action: 'branch.regen_token', resource_type: 'branch', resource_id: branch.id };
@@ -125,9 +123,6 @@ router.patch('/:id', verifyClient, validate({
  try {
  const branch = await stmts.getBranchById.get(req.params.id);
  if (!branch) return res.status(404).json({ error: 'Branch not found' });
- if (branch.client_id !== req.client.id) {
- return res.status(403).json({ error: 'Không có quyền sửa trạm này' });
- }
  if (req.body.name === undefined && req.body.location === undefined) {
  return res.status(400).json({ error: 'Cần ít nhất name hoặc location' });
  }
@@ -157,9 +152,6 @@ router.post('/:id/transfer-client', verifyClient, validate({
  try {
  const branch = await stmts.getBranchById.get(req.params.id);
  if (!branch) return res.status(404).json({ error: 'Branch not found' });
- if (branch.client_id !== req.client.id) {
- return res.status(403).json({ error: 'Không có quyền chuyển trạm này' });
- }
 
  const targetId = req.body.target_client_id;
  if (targetId === branch.client_id) {
