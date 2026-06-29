@@ -66,7 +66,7 @@ print-agent/
 - Windows 10/11
 - Node.js v18+
 - SumatraPDF portable (xem `tools/README.md`)
-- Network tới Print Service: port 3000 (HTTP) + 8883 (MQTTS)
+- Network tới Print Service: port 443 (HTTPS, agent qua internet) hoặc 3000 (HTTP, HQ LAN) + 8883 (MQTTS)
 
 ## Vận hành
 
@@ -74,8 +74,8 @@ print-agent/
 # Health check
 powershell -ExecutionPolicy Bypass -File .\check.ps1
 
-# Service status
-Get-Service PrintAgent-br001
+# Service status (tên service = PrintAgent-<BRANCH_ID>, do installer đặt theo branch_id server cấp)
+Get-Service PrintAgent-*
 
 # Log real-time
 Get-Content logs\$(Get-Date -Format 'yyyy-MM-dd').log -Wait
@@ -92,7 +92,7 @@ MQTT_URL=mqtts://<server_host>:8883
 MQTT_USER=<mqtt_user>
 MQTT_PASS=<mqtt_pass>
 MQTT_CA_FILE=C:\print-system\root_ca.crt
-API_URL=http://<server_host>:3000
+API_URL=https://<server_host>:443
 SUMATRA_PATH=C:\print-system\tools\SumatraPDF.exe
 TMP_DIR=C:\print-system\agents\agent-01\tmp
 PRINT_SETTINGS=1,a4,fit
