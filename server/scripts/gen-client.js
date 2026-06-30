@@ -16,7 +16,8 @@
  * "client_id": "cli_...",
  * "client_secret": "...", // plaintext, 1-time visibility
  * "client_name": "...",
- * "created_at": "ISO-8601"
+ * "created_at": "ISO-8601",
+ * "agent_env": { MQTT_URL, MQTT_USER, MQTT_PASS, API_URL, MQTT_CA_FILE, SUMATRA_PATH, ... }
  * }
  */
 
@@ -84,7 +85,15 @@ function writeInstallFile(payload, outputFile) {
  return outPath;
 }
 
-module.exports = { createClient, writeInstallFile };
+/**
+ * install.json trỏ server_url/API_URL = config.server.publicUrl. Nếu SERVER_PUBLIC_URL chưa set,
+ * publicUrl mặc định là localhost → install.json vô dụng cho máy chi nhánh. Hàm này phát hiện.
+ */
+function publicUrlIsLocalhost(url) {
+ return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/i.test(url || '');
+}
+
+module.exports = { createClient, writeInstallFile, publicUrlIsLocalhost };
 
 // CLI mode
 if (require.main === module) {
@@ -95,6 +104,16 @@ if (require.main === module) {
  console.error('Usage: node scripts/gen-client.js <client-name> [client-id]');
  console.error(' client-id tuỳ chọn (a-z 0-9 _ - , 2-64 ký tự); bỏ trống → tự sinh. Hoặc đặt env CLIENT_ID.');
  console.error(' Set OUTPUT_FILE env var to write install JSON instead of console.');
+ process.exit(1);
+ }
+
+ // B1: chặn phát install.json trỏ localhost (SERVER_PUBLIC_URL chưa set) — máy chi nhánh sẽ không
+ // kết nối được. Chỉ áp khi ghi install file (OUTPUT_FILE); console mode không nhúng URL.
+ if (process.env.OUTPUT_FILE && publicUrlIsLocalhost(config.server.publicUrl) && !process.env.ALLOW_LOCALHOST) {
+ console.error(`✗ SERVER_PUBLIC_URL chưa set: install.json sẽ trỏ ${config.server.publicUrl} (localhost).`);
+ console.error('  Máy chi nhánh KHÔNG kết nối được. Chạy lại với URL server thật, ví dụ:');
+ console.error('  SERVER_PUBLIC_URL=https://<host>:443 OUTPUT_FILE=install.json node scripts/gen-client.js "<tên>"');
+ console.error('  (đặt ALLOW_LOCALHOST=1 nếu cố tình tạo cho test cục bộ).');
  process.exit(1);
  }
 

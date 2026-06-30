@@ -28,10 +28,17 @@ param(
   [string]$ServiceName = 'PrintAgent-br001',
   [string]$NssmPath = 'C:\Tools\nssm.exe',
   [string]$CaFile,
+  [string]$BranchName,
+  [string]$Location,
   [string]$SumatraUrl = 'https://www.sumatrapdfreader.org/dl/rel/3.6.1/SumatraPDF-3.6.1-64.zip'
 )
 
 $ErrorActionPreference = 'Stop'
+# PS 5.1 mặc định có thể chỉ bật TLS1.0 → github.com / nssm.cc / sumatra (yêu cầu TLS1.2) sẽ fail
+# "Could not create SSL/TLS secure channel". Ép TLS1.2 trước mọi Invoke-WebRequest. Tắt progress bar
+# (IWR trên PS5.1 chậm 10-50x khi vẽ progress lúc tải file lớn).
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}
+$ProgressPreference = 'SilentlyContinue'
 
 # --- Resolve các đường dẫn tương đối TRƯỚC khi đổi thư mục / nâng quyền ---
 $InstallJson = (Resolve-Path -LiteralPath $InstallJson).Path
@@ -43,8 +50,10 @@ if (-not $CaFile) {
 # --- Tự nâng quyền (forward params) ---
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
   Write-Host "Requesting UAC elevation..." -ForegroundColor Yellow
-  $arg = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -InstallJson `"$InstallJson`" -AppDir `"$AppDir`" -ServiceName `"$ServiceName`" -NssmPath `"$NssmPath`""
+  $arg = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -InstallJson `"$InstallJson`" -AppDir `"$AppDir`" -ServiceName `"$ServiceName`" -NssmPath `"$NssmPath`" -SumatraUrl `"$SumatraUrl`""
   if ($CaFile) { $arg += " -CaFile `"$CaFile`"" }
+  if ($BranchName) { $arg += " -BranchName `"$BranchName`"" }
+  if ($Location) { $arg += " -Location `"$Location`"" }
   Start-Process -FilePath "powershell.exe" -ArgumentList $arg -Verb RunAs -Wait
   exit
 }
@@ -99,20 +108,31 @@ if (Test-Path $sumatra) {
 } else {
   Write-Host "Tải SumatraPDF..." -ForegroundColor Cyan
   $zip = Join-Path $env:TEMP 'SumatraPDF.zip'
-  Invoke-WebRequest -Uri $SumatraUrl -OutFile $zip
-  Expand-Archive $zip -DestinationPath (Join-Path $AppDir 'tools') -Force
-  $exe = Get-ChildItem -Path (Join-Path $AppDir 'tools') -Filter 'SumatraPDF-*.exe' | Select-Object -First 1
-  if ($exe) { Move-Item $exe.FullName $sumatra -Force }
-  if (-not (Test-Path $sumatra)) { Write-Host "FATAL: Không lấy được SumatraPDF.exe" -ForegroundColor Red; exit 1 }
+  try {
+    Invoke-WebRequest -Uri $SumatraUrl -OutFile $zip -TimeoutSec 120
+    Expand-Archive $zip -DestinationPath (Join-Path $AppDir 'tools') -Force
+    $exe = Get-ChildItem -Path (Join-Path $AppDir 'tools') -Filter 'SumatraPDF-*.exe' | Select-Object -First 1
+    if ($exe) { Move-Item $exe.FullName $sumatra -Force }
+  } catch {
+    Write-Host "  Tải SumatraPDF thất bại: $($_.Exception.Message)" -ForegroundColor Yellow
+  }
+  if (-not (Test-Path $sumatra)) {
+    Write-Host "FATAL: Không lấy được SumatraPDF.exe. Tải thủ công SumatraPDF portable 64-bit, đổi tên thành SumatraPDF.exe, đặt vào $sumatra rồi chạy lại." -ForegroundColor Red
+    exit 1
+  }
 }
 
 # --- 5) Root CA -> Trusted Root (Local Machine) ---
+# Lưu ý: import vào Windows Trusted Root giúp trình duyệt/WinHTTP, KHÔNG giúp Node (agent dùng CA này
+# qua MQTT_CA_FILE + axios httpsAgent). Quan trọng là COPY file root_ca.crt vào $AppDir để runtime đọc.
+$caInstalled = $false
 if ($CaFile -and (Test-Path $CaFile)) {
   Write-Host "Cài root CA vào Trusted Root..." -ForegroundColor Cyan
   Copy-Item $CaFile -Destination (Join-Path $AppDir 'root_ca.crt') -Force
   Import-Certificate -FilePath (Join-Path $AppDir 'root_ca.crt') -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+  $caInstalled = $true
 } else {
-  Write-Host "CẢNH BÁO: không tìm thấy root_ca.crt — kết nối TLS có thể lỗi. Cài tay theo CA_INSTALL.md." -ForegroundColor Yellow
+  Write-Host "CẢNH BÁO: không tìm thấy root_ca.crt — agent SẼ LỖI MQTTS/HTTPS lúc chạy (không online). Cài tay theo CA_INSTALL.md." -ForegroundColor Yellow
 }
 
 # --- 6) NSSM ---
@@ -153,6 +173,11 @@ if (-not (Test-Path $NssmPath)) {
   if (-not (Test-Path $NssmPath)) {
     Write-Host "  Thử winget..." -ForegroundColor Yellow
     & winget install --id NSSM.NSSM -e --accept-source-agreements --accept-package-agreements
+    # winget cài nssm vào thư mục package riêng (KHÔNG phải $NssmPath). Refresh PATH rồi resolve +
+    # copy về $NssmPath để các bước sau (install-service.ps1) dùng đúng đường dẫn cố định.
+    $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
+    $nssmCmd = Get-Command nssm.exe -ErrorAction SilentlyContinue
+    if ($nssmCmd) { Copy-Item $nssmCmd.Source $NssmPath -Force }
   }
 
   if (-not (Test-Path $NssmPath)) { Write-Host "FATAL: Không có nssm.exe tại $NssmPath" -ForegroundColor Red; exit 1 }
@@ -167,6 +192,13 @@ try {
 
   # --- 8) Đăng ký branch (hỏi tên + địa điểm, ghi .env đầy đủ) ---
   Write-Host "`n=== Đăng ký trạm ===" -ForegroundColor Green
+  # B4: cho fetch của register (Node) tin Step-CA khi server_url là HTTPS nội bộ — Node KHÔNG đọc
+  # Windows cert store. root_ca.crt đã copy vào $AppDir ở bước 5 (nếu có CA).
+  $caRuntime = Join-Path $AppDir 'root_ca.crt'
+  if (Test-Path $caRuntime) { $env:NODE_EXTRA_CA_CERTS = $caRuntime }
+  # B11: hỗ trợ cài không tương tác — nếu truyền -BranchName/-Location thì bỏ qua prompt readline.
+  if ($BranchName) { $env:REGISTER_BRANCH_NAME = $BranchName }
+  if ($Location) { $env:REGISTER_LOCATION = $Location }
   & node agent.js --register $InstallJson
   if ($LASTEXITCODE -ne 0) { throw "Đăng ký branch thất bại ($LASTEXITCODE)" }
 } finally {
@@ -174,6 +206,20 @@ try {
 }
 
 # --- 9) Cài service ---
+# B6: đặt tên service theo BRANCH_ID thật (server cấp động) để cài nhiều agent không đè nhau và để
+# check.ps1 / Get-Service tìm đúng. Chỉ tự suy khi người dùng KHÔNG override -ServiceName.
+if ($ServiceName -eq 'PrintAgent-br001') {
+  $envPath = Join-Path $AppDir '.env'
+  if (Test-Path $envPath) {
+    $branchLine = Select-String -Path $envPath -Pattern '^BRANCH_ID=(.+)$' | Select-Object -First 1
+    if ($branchLine) {
+      $bid = $branchLine.Matches[0].Groups[1].Value.Trim()
+      if ($bid) { $ServiceName = "PrintAgent-$bid" }
+    }
+  }
+}
+Write-Host "Service name: $ServiceName" -ForegroundColor DarkGray
+
 $NodeExe = (Get-Command node).Source
 & (Join-Path $AppDir 'install-service.ps1') -ServiceName $ServiceName -NssmPath $NssmPath -NodeExe $NodeExe -AppDir $AppDir -NoPause
 
@@ -181,9 +227,14 @@ $NodeExe = (Get-Command node).Source
 $check = Join-Path $AppDir 'check.ps1'
 if (Test-Path $check) {
   Write-Host "`n=== Smoke test (check.ps1) ===" -ForegroundColor Green
-  & powershell -ExecutionPolicy Bypass -File $check
+  & powershell -ExecutionPolicy Bypass -File $check -ServiceName $ServiceName -AppDir $AppDir
 }
 
-Write-Host "`n✓ Hoàn tất. Service '$ServiceName' đã chạy. In thử 1 job từ ERP để xác nhận." -ForegroundColor Green
+if ($caInstalled) {
+  Write-Host "`n✓ Hoàn tất. Service '$ServiceName' đã chạy. In thử 1 job từ ERP để xác nhận." -ForegroundColor Green
+} else {
+  Write-Host "`n⚠ Cài XONG nhưng CHƯA có root_ca.crt → service sẽ lỗi TLS (MQTTS/HTTPS) và KHÔNG online." -ForegroundColor Red
+  Write-Host "  Đặt root_ca.crt vào $AppDir theo CA_INSTALL.md rồi chạy: nssm restart $ServiceName" -ForegroundColor Red
+}
 Write-Host "Press any key to close." -ForegroundColor Green
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")

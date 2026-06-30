@@ -216,6 +216,27 @@ async function initSchema() {
  } catch (e) {
  if (!/already exists/i.test(e.message)) throw e;
  }
+ // B16: máy in auto-discovery phải idempotent — heartbeat đồng thời cho cùng (branch_id,name)
+ // không được chèn 2 dòng. Dedup dữ liệu cũ (giữ dòng approved cao nhất, mới nhất) RỒI tạo UNIQUE
+ // index để insertDiscoveredPrinter ON CONFLICT DO NOTHING hoạt động. Tách 2 try để fresh DB (test
+ // pg-mem) vẫn tạo được index dù dedup có thể không hỗ trợ cú pháp.
+ try {
+ await pool.query(`
+ DELETE FROM printers p
+ WHERE EXISTS (
+ SELECT 1 FROM printers q
+ WHERE q.branch_id = p.branch_id AND q.name = p.name
+ AND (q.approved, q.created_at, q.id) > (p.approved, p.created_at, p.id)
+ )
+ `);
+ } catch (e) {
+ logger.warn('printers dedup migration skipped', { err: e.message });
+ }
+ try {
+ await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_printers_branch_name ON printers(branch_id, name)`);
+ } catch (e) {
+ if (!/already exists/i.test(e.message)) logger.warn('printers unique-index migration skipped', { err: e.message });
+ }
  initialized = true;
  logger.info('Postgres schema initialized');
 }
@@ -318,6 +339,7 @@ const stmts = {
  insertDiscoveredPrinter: buildStmt('insertDiscoveredPrinter', `
  INSERT INTO printers (id, branch_id, name, is_default, status, last_seen_at, source, approved, created_at)
  VALUES (@id, @branch_id, @name, 0, @status, @last_seen_at, 'discovered', 0, @created_at)
+ ON CONFLICT (branch_id, name) DO NOTHING
  `),
  setPrinterApproved: buildStmt('setPrinterApproved', `
  UPDATE printers SET approved = @approved WHERE id = @id
