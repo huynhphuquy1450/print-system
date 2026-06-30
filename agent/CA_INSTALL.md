@@ -1,9 +1,18 @@
 # Hướng dẫn cài đặt Root CA Certificate trên Windows
 
-Khi server dùng **Step-CA** (internal PKI) thay cho Let's Encrypt, máy tính
-agent Windows cần được "tin tưởng" CA này — nếu không, mọi kết nối HTTPS
-sẽ fail với lỗi `UNABLE_TO_VERIFY_LEAF_SIGNATURE` hoặc
-`CERT_AUTHORITY_INVALID`.
+Khi server dùng **cert nội bộ** (self-signed HOẶC Step-CA) thay cho Let's Encrypt,
+máy agent Windows cần "tin tưởng" CA này — nếu không, kết nối TLS sẽ fail với
+`UNABLE_TO_VERIFY_LEAF_SIGNATURE` hoặc `CERT_AUTHORITY_INVALID`.
+
+> **Deployment hiện tại:** broker MQTT (8883) dùng cert **self-signed**
+> `CN=<server_ip>`; `root_ca.crt` chính là cert đó (trên server:
+> `cp /etc/mosquitto/certs/server.crt root_ca.crt`). Nếu API chạy HTTP:3000 thì
+> agent KHÔNG cần CA cho API — chỉ cần cho MQTTS. CA chỉ bắt buộc cho HTTPS.
+>
+> **Lưu ý Node:** import vào Windows Trusted Root KHÔNG giúp agent (Node bỏ qua
+> Windows cert store). Agent tin CA qua `MQTT_CA_FILE` (root_ca.crt) cho MQTT +
+> axios httpsAgent; installer còn set `NODE_EXTRA_CA_CERTS`. Việc import Trusted
+> Root bên dưới chỉ giúp browser/WinHTTP/`curl.exe`.
 
 ## Khi nào cần làm
 
@@ -32,7 +41,7 @@ sẽ fail với lỗi `UNABLE_TO_VERIFY_LEAF_SIGNATURE` hoặc
    Authorities** → chọn **Local Computer** → OK → Next.
 7. **Finish**. Nếu có UAC prompt → Yes.
 8. Verify: tab "Certification Path" phải hiện
-   "Print System Internal CA" với dấu tick xanh.
+   CN của server (self-signed: `CN=<server_ip>`, vd `160.250.133.192`) với dấu tick xanh.
 
 ### Phương pháp 2: certlm.msc (cho IT admin, nhiều máy)
 
@@ -42,7 +51,7 @@ sẽ fail với lỗi `UNABLE_TO_VERIFY_LEAF_SIGNATURE` hoặc
 3. Right-click **Certificates** → **All Tasks** → **Import...**
 4. Browse tới `root_ca.crt` → Next → Place in "Trusted Root
    Certification Authorities" → Finish.
-5. Verify: tên "Print System Internal CA" xuất hiện trong list.
+5. Verify: cert `CN=<server_ip>` (vd `160.250.133.192`) xuất hiện trong list.
 
 ### Phương pháp 3: PowerShell (script, nhiều máy)
 
@@ -57,7 +66,7 @@ Verify:
 
 ```powershell
 Get-ChildItem Cert:\LocalMachine\Root |
-  Where-Object { $_.Subject -match "Print System" } |
+  Where-Object { $_.Subject -match "160.250.133.192" } |   # đổi theo CN cert của bạn
   Select-Object Subject, NotAfter, Thumbprint
 ```
 
@@ -83,7 +92,7 @@ Cả hai command phải chạy thành công, không có cảnh báo certificate.
 
 | Lỗi | Nguyên nhân | Cách fix |
 |---|---|---|
-| `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | Root CA chưa được cài, hoặc cài sai store. | Mở `certlm.msc` → Trusted Root → kiểm tra có "Print System Internal CA" không. |
+| `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | Root CA chưa được cài, hoặc cài sai store. | Mở `certlm.msc` → Trusted Root → kiểm tra có cert `CN=<server_ip>` không. |
 | `CERT_AUTHORITY_INVALID` | CA cert hết hạn hoặc bị revoke. | Liên hệ HQ IT để lấy root CA mới. |
 | `ERR_CERT_COMMON_NAME_INVALID` | Server cert không match hostname. | Kiểm tra server cert phải có SAN = `160.250.133.192`. Nếu agent dùng DNS khác, cần provision cert mới với SAN tương ứng. |
 | Cài vào "Personal" thay vì "Trusted Root" | Nhầm store. | Remove cert khỏi Personal, cài lại vào Trusted Root. |
