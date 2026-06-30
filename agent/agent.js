@@ -253,6 +253,11 @@ function printPdf(pdfPath, printer) {
  ];
  if (targetPrinter) {
  args.push('-print-to', targetPrinter);
+ } else {
+ // PRINTER_NAME rỗng + job không kèm printer = in ra MÁY IN MẶC ĐỊNH (đúng như .env.example mô tả).
+ // SumatraPDF BẮT BUỘC có lệnh in: thiếu cả -print-to lẫn -print-to-default thì nó chỉ MỞ trình xem
+ // PDF rồi treo (process không thoát) → agent timeout 120s. -print-to-default mới thực sự in.
+ args.push('-print-to-default');
  }
  args.push(pdfPath);
 
