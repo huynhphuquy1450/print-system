@@ -136,12 +136,12 @@ if ($CaFile -and (Test-Path $CaFile)) {
 }
 
 # --- 6) NSSM ---
-# nssm.cc hay 503 → thử lần lượt: zip chính thức, rồi mirror GitHub (nssm.exe win64 trực tiếp),
-# cuối cùng winget. Dừng ngay khi $NssmPath đã có.
+# Chỉ tải từ nssm.cc chính thức — KHÔNG dùng mirror GitHub cá nhân (rủi ro chuỗi cung ứng: binary
+# không rõ nguồn gốc/toàn vẹn). Dừng ngay khi $NssmPath đã có.
 if (-not (Test-Path $NssmPath)) {
   Write-Host "Tải NSSM..." -ForegroundColor Cyan
 
-  # 6a) Zip chính thức từ nssm.cc (giải nén lấy win64\nssm.exe)
+  # Zip chính thức từ nssm.cc (giải nén lấy win64\nssm.exe)
   try {
     $nzip = Join-Path $env:TEMP 'nssm.zip'
     Invoke-WebRequest -Uri 'https://nssm.cc/release/nssm-2.24.zip' -OutFile $nzip -TimeoutSec 30
@@ -150,37 +150,18 @@ if (-not (Test-Path $NssmPath)) {
     $nexe = Get-ChildItem -Path $ndir -Recurse -Filter 'nssm.exe' | Where-Object { $_.FullName -match 'win64' } | Select-Object -First 1
     if ($nexe) { Copy-Item $nexe.FullName $NssmPath -Force; Write-Host "  NSSM từ nssm.cc OK" -ForegroundColor DarkGray }
   } catch {
-    Write-Host "  nssm.cc thất bại ($($_.Exception.Message)), thử mirror GitHub..." -ForegroundColor Yellow
+    Write-Host "  Tải NSSM từ nssm.cc thất bại: $($_.Exception.Message)" -ForegroundColor Yellow
   }
 
-  # 6b) Mirror GitHub — tải thẳng nssm.exe (win64 2.24, 331264 bytes)
   if (-not (Test-Path $NssmPath)) {
-    $mirrors = @(
-      'https://github.com/zhiyunai/nssm-2.24/raw/master/win64/nssm.exe',
-      'https://github.com/imvickykumar999/Non-Sucking-Service-Manager/raw/main/win64/nssm.exe'
-    )
-    foreach ($m in $mirrors) {
-      try {
-        Invoke-WebRequest -Uri $m -OutFile $NssmPath -TimeoutSec 30
-        if (Test-Path $NssmPath) { Write-Host "  NSSM từ mirror OK: $m" -ForegroundColor DarkGray; break }
-      } catch {
-        Write-Host "  Mirror thất bại: $m" -ForegroundColor Yellow
-      }
-    }
+    Write-Host "FATAL: Không tải được nssm.exe từ nssm.cc." -ForegroundColor Red
+    Write-Host "Vui lòng tải thủ công:" -ForegroundColor Red
+    Write-Host "  1. Vào https://nssm.cc/download, tải bản 2.24 (hoặc mới hơn)." -ForegroundColor Red
+    Write-Host "  2. Giải nén, lấy file win64\nssm.exe." -ForegroundColor Red
+    Write-Host "  3. Đặt file vào: $NssmPath" -ForegroundColor Red
+    Write-Host "  4. Chạy lại installer." -ForegroundColor Red
+    exit 1
   }
-
-  # 6c) winget (chốt chặn cuối)
-  if (-not (Test-Path $NssmPath)) {
-    Write-Host "  Thử winget..." -ForegroundColor Yellow
-    & winget install --id NSSM.NSSM -e --accept-source-agreements --accept-package-agreements
-    # winget cài nssm vào thư mục package riêng (KHÔNG phải $NssmPath). Refresh PATH rồi resolve +
-    # copy về $NssmPath để các bước sau (install-service.ps1) dùng đúng đường dẫn cố định.
-    $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
-    $nssmCmd = Get-Command nssm.exe -ErrorAction SilentlyContinue
-    if ($nssmCmd) { Copy-Item $nssmCmd.Source $NssmPath -Force }
-  }
-
-  if (-not (Test-Path $NssmPath)) { Write-Host "FATAL: Không có nssm.exe tại $NssmPath" -ForegroundColor Red; exit 1 }
 }
 
 # --- 7) npm install ---
