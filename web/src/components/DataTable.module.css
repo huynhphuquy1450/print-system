@@ -1,13 +1,14 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-sm);
 }
 
 .table thead {
   position: sticky;
   top: 0;
-  background: var(--color-muted);
+  background: var(--color-card);
+  box-shadow: 0 1px 0 var(--color-border);
   z-index: 1;
 }
 
@@ -32,7 +33,7 @@
 }
 
 .row:hover td {
-  background: var(--color-muted);
+  background: color-mix(in srgb, var(--color-muted) 60%, var(--color-card));
 }
 
 .emptyCell {

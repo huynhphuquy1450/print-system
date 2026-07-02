@@ -9,12 +9,64 @@
   background: var(--color-card);
 }
 
+.menuBtn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--color-fg);
+  cursor: pointer;
+}
+
+.menuBtn:hover {
+  background: var(--color-muted);
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
 .identity {
   font-size: var(--font-size-sm);
   color: var(--color-muted-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .logoutBtn {
   font-size: var(--font-size-sm);
   padding: var(--space-1) var(--space-3);
+  flex-shrink: 0;
+}
+
+/* Dưới 1024px: hiện nút hamburger, đẩy khối phải sang bên phải */
+@media (max-width: 1023px) {
+  .topbar {
+    justify-content: space-between;
+  }
+
+  .menuBtn {
+    display: inline-flex;
+  }
+}
+
+/* Màn hình rất nhỏ: giảm padding/gap và giới hạn bề rộng tên client để không tràn ngang */
+@media (max-width: 480px) {
+  .topbar {
+    padding: 0 var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .identity {
+    max-width: 96px;
+  }
 }

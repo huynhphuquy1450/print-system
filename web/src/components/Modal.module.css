@@ -48,6 +48,9 @@
 
 .closeBtn:hover { color: var(--color-fg); background: var(--color-muted); }
 
+.closeBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+.closeBtn:disabled:hover { background: none; color: var(--color-muted-fg); }
+
 .body {
   padding: var(--space-5);
   overflow-y: auto;

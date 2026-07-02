@@ -6,6 +6,18 @@
   animation: spin 600ms linear infinite;
 }
 
+.sm {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.md {
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

@@ -15,4 +15,19 @@
   flex: 1;
   padding: var(--space-5);
   overflow: auto;
+  min-width: 0;
+}
+
+/* Lớp phủ tối phía sau drawer trên di động, đóng khi bấm ra ngoài */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+@media (min-width: 1024px) {
+  .backdrop {
+    display: none;
+  }
 }

@@ -1,17 +1,19 @@
 :root {
   /* Màu sắc */
-  --color-primary: #475569;
-  --color-primary-hover: #334155;
+  --color-primary: #1e40af;
+  --color-primary-hover: #1e3a8a;
   --color-on-primary: #ffffff;
-  --color-accent: #2563eb;
-  --color-accent-hover: #1d4ed8;
+  --color-secondary: #3b82f6;
+  --color-accent: #d97706;
+  --color-accent-hover: #b45309;
   --color-bg: #f8fafc;
   --color-card: #ffffff;
   --color-fg: #1e293b;
-  --color-muted: #eaeff3;
+  --color-muted: #e9eef6;
   --color-muted-fg: #64748b;
-  --color-border: #e2e8f0;
+  --color-border: #dbeafe;
   --color-destructive: #dc2626;
+  --color-danger: #dc2626;
   --color-success: #16a34a;
   --color-warning: #d97706;
 
@@ -22,6 +24,7 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+  --space-8: 48px;
 
   /* Border radius */
   --radius-sm: 4px;
@@ -31,7 +34,7 @@
   /* Layout */
   --sidebar-width: 240px;
   --topbar-height: 56px;
-  --row-height: 36px;
+  --row-height: 34px;
 
   /* Shadow */
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);

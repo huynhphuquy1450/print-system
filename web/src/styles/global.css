@@ -18,7 +18,7 @@ body {
 
 /* Focus visible — bắt buộc cho a11y */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-secondary);
   outline-offset: 2px;
 }
 
@@ -65,13 +65,15 @@ body {
   background: var(--color-primary-hover);
 }
 
+/* --color-accent giờ là màu nhấn (amber), không dùng cho CTA chính nữa —
+   btn-accent giữ giao diện xanh (primary) để không đổi màu các nút CTA hiện có */
 .btn-accent {
-  background: var(--color-accent);
+  background: var(--color-primary);
   color: #fff;
 }
 
 .btn-accent:hover:not(:disabled) {
-  background: var(--color-accent-hover);
+  background: var(--color-primary-hover);
 }
 
 .btn-danger {
@@ -93,6 +95,12 @@ body {
   background: var(--color-muted);
 }
 
+/* Biến thể nút nhỏ gọn — dùng cho ô hành động trong bảng */
+.btn-sm {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
 /* ── Input / Select / Textarea ───────────────────── */
 input,
 select,
@@ -112,8 +120,8 @@ input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
 }
 
 /* ── Card ────────────────────────────────────────── */

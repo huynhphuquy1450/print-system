@@ -29,7 +29,7 @@ export default function ConfirmDialog({
         </>
       }
     >
-      <p style={{ color: 'var(--color-fg)' }}>{message}</p>
+      <p>{message}</p>
     </Modal>
   );
 }
