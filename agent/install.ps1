@@ -54,12 +54,40 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
   if ($CaFile) { $arg += " -CaFile `"$CaFile`"" }
   if ($BranchName) { $arg += " -BranchName `"$BranchName`"" }
   if ($Location) { $arg += " -Location `"$Location`"" }
-  Start-Process -FilePath "powershell.exe" -ArgumentList $arg -Verb RunAs -Wait
-  exit
+  # -PassThru + kiểm tra ExitCode: trước đây exit trơn nên cửa sổ nâng quyền chết giữa chừng
+  # (vd install-service fail) mà shell gốc vẫn im lặng như thành công.
+  $p = Start-Process -FilePath "powershell.exe" -ArgumentList $arg -Verb RunAs -Wait -PassThru
+  $code = $p.ExitCode
+  if ($null -eq $code) {
+    # RunAs + PassThru trên PS 5.1 hiếm khi không đọc được ExitCode — hướng người dùng xem log
+    Write-Host "Installer đã chạy xong (không đọc được exit code). Kiểm tra: Get-Service PrintAgent-* và log $AppDir\logs\install-*.log" -ForegroundColor Yellow
+    exit 0
+  }
+  if ($code -ne 0) {
+    Write-Host "INSTALLER THẤT BẠI (exit $code). Xem log: $AppDir\logs\install-*.log" -ForegroundColor Red
+  } else {
+    Write-Host "Installer hoàn tất OK." -ForegroundColor Green
+  }
+  exit $code
 }
 
 Write-Host "=== Print Agent installer (elevated) ===" -ForegroundColor Green
 Write-Host "AppDir=$AppDir  Service=$ServiceName" -ForegroundColor DarkGray
+
+# Transcript log — lỗi ở cửa sổ nâng quyền (tự đóng) vẫn truy được nguyên nhân từ file
+try {
+  $null = New-Item -ItemType Directory -Force -Path (Join-Path $AppDir 'logs')
+  Start-Transcript -Path (Join-Path $AppDir ("logs\install-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))) | Out-Null
+} catch {}
+
+# Lỗi bất kỳ: hiện rõ + dừng chờ đọc rồi mới đóng cửa sổ (trap chạy với EAP=Stop ở trên)
+trap {
+  Write-Host "`nLỖI: $_" -ForegroundColor Red
+  Write-Host ($_.ScriptStackTrace) -ForegroundColor DarkGray
+  try { Stop-Transcript | Out-Null } catch {}
+  if (-not $BranchName) { Read-Host "Nhấn Enter để đóng" | Out-Null }
+  exit 1
+}
 
 # --- 1) Node >= 18 ---
 function Get-NodeMajor {
@@ -202,7 +230,25 @@ if ($ServiceName -eq 'PrintAgent-br001') {
 Write-Host "Service name: $ServiceName" -ForegroundColor DarkGray
 
 $NodeExe = (Get-Command node).Source
-& (Join-Path $AppDir 'install-service.ps1') -ServiceName $ServiceName -NssmPath $NssmPath -NodeExe $NodeExe -AppDir $AppDir -NoPause
+# Gọi qua process con (-File) thay vì `&`: install-service.ps1 có nhiều nhánh `exit 1` —
+# chạy inline thì exit đó giết luôn installer giữa chừng, không kịp báo lỗi/smoke test.
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $AppDir 'install-service.ps1') `
+  -ServiceName $ServiceName -NssmPath $NssmPath -NodeExe $NodeExe -AppDir $AppDir -NoPause
+if ($LASTEXITCODE -ne 0) { throw "install-service.ps1 thất bại (exit $LASTEXITCODE) — xem thông báo đỏ phía trên." }
+
+# Kiểm chứng service thật sự tồn tại + Running (chờ tối đa 20s) — không tin exit code suông
+$svcOk = $false
+for ($i = 0; $i -lt 10; $i++) {
+  $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+  if ($svc -and $svc.Status -eq 'Running') { $svcOk = $true; break }
+  Start-Sleep -Seconds 2
+}
+if (-not $svcOk) {
+  Write-Host "Service '$ServiceName' KHÔNG chạy. Cài lại thủ công bằng:" -ForegroundColor Red
+  Write-Host "  powershell -ExecutionPolicy Bypass -File $AppDir\install-service.ps1 -ServiceName $ServiceName -NoPause" -ForegroundColor Yellow
+  throw "Service không ở trạng thái Running sau khi cài."
+}
+Write-Host "✓ Service '$ServiceName' đang Running." -ForegroundColor Green
 
 # --- 10) Smoke test ---
 $check = Join-Path $AppDir 'check.ps1'
@@ -217,5 +263,6 @@ if ($caInstalled) {
   Write-Host "`n⚠ Cài XONG nhưng CHƯA có root_ca.crt → service sẽ lỗi TLS (MQTTS/HTTPS) và KHÔNG online." -ForegroundColor Red
   Write-Host "  Đặt root_ca.crt vào $AppDir theo CA_INSTALL.md rồi chạy: nssm restart $ServiceName" -ForegroundColor Red
 }
+try { Stop-Transcript | Out-Null } catch {}
 Write-Host "Press any key to close." -ForegroundColor Green
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
