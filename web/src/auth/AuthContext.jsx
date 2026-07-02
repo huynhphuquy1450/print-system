@@ -5,7 +5,13 @@ import api, { setAuthToken, setUnauthorizedHandler } from '../api/client.js';
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem('hq_token'));
+  const [token, setToken] = useState(() => {
+    const t = localStorage.getItem('hq_token');
+    // Đồng bộ NGAY khi khởi tạo — effect của page con chạy TRƯỚC effect của Provider,
+    // nếu chỉ sync trong useEffect thì fetch đầu tiên sau F5 thiếu Authorization → 401 → bị logout oan
+    setAuthToken(t);
+    return t;
+  });
   const [client, setClient] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('hq_client'));
