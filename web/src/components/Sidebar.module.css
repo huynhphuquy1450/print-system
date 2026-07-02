@@ -8,6 +8,24 @@
   flex-shrink: 0;
 }
 
+/* Dưới 1024px: sidebar trở thành off-canvas drawer */
+@media (max-width: 1023px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 50;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform 200ms ease-out;
+    box-shadow: var(--shadow);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+}
+
 .logo {
   display: flex;
   align-items: center;
@@ -18,6 +36,7 @@
   font-size: 15px;
   color: var(--color-fg);
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .nav {
@@ -25,6 +44,7 @@
   flex-direction: column;
   padding: var(--space-3) var(--space-2);
   gap: var(--space-1);
+  overflow-y: auto;
 }
 
 .link {
@@ -32,11 +52,12 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
+  border-left: 3px solid transparent;
   border-radius: var(--radius);
   color: var(--color-muted-fg);
   text-decoration: none;
   font-size: var(--font-size-base);
-  transition: background 150ms, color 150ms;
+  transition: background 150ms, color 150ms, border-color 150ms;
 }
 
 .link:hover {
@@ -48,4 +69,5 @@
   background: var(--color-muted);
   color: var(--color-primary);
   font-weight: 600;
+  border-left-color: var(--color-primary);
 }

@@ -28,3 +28,26 @@
   justify-content: center;
   padding: var(--space-5) 0;
 }
+
+/* Ô Actor ID: hiển thị dạng mono, cỡ chữ nhỏ */
+.actorId {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+/* Ô mã status: chữ đậm, màu theo nhóm mã */
+.statusCode {
+  font-weight: 600;
+}
+
+.statusSuccess {
+  color: var(--color-success);
+}
+
+.statusWarning {
+  color: var(--color-warning);
+}
+
+.statusDestructive {
+  color: var(--color-destructive);
+}

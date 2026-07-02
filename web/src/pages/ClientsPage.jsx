@@ -14,10 +14,13 @@ import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import Field from '../components/Field.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import EmptyState from '../components/EmptyState.jsx';
+import ErrorState from '../components/ErrorState.jsx';
 import Spinner from '../components/Spinner.jsx';
+import pageStyles from '../components/Page.module.css';
 import styles from './ClientsPage.module.css';
 
 const EMPTY_CREATE_FORM = { name: '' };
+const EMPTY_SECRET_MODAL = { open: false, title: '', secret: '' };
 
 export default function ClientsPage() {
   const { toast } = useToast();
@@ -33,8 +36,9 @@ export default function ClientsPage() {
   const [createLoading, setCreateLoading] = useState(false);
   const [createErrors, setCreateErrors] = useState({});
 
-  // Modal hiển thị secret (sau tạo mới hoặc rotate)
-  const [secretModal, setSecretModal] = useState({ open: false, title: '', secret: '' });
+  // Modal hiển thị secret (sau tạo mới hoặc rotate) — không đóng được cho tới khi tick xác nhận
+  const [secretModal, setSecretModal] = useState(EMPTY_SECRET_MODAL);
+  const [secretConfirmed, setSecretConfirmed] = useState(false);
 
   // Xác nhận rotate secret
   const [confirmRotateId, setConfirmRotateId] = useState(null);
@@ -47,15 +51,24 @@ export default function ClientsPage() {
       setRows(data.clients || []);
     } catch (err) {
       setError(err.message);
-      toast(err.message, 'error');
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  function openSecretModal(title, secret) {
+    setSecretModal({ open: true, title, secret });
+    setSecretConfirmed(false);
+  }
+
+  function closeSecretModal() {
+    setSecretModal(EMPTY_SECRET_MODAL);
+    setSecretConfirmed(false);
+  }
 
   // Toggle kích hoạt / vô hiệu
   async function handleToggleActive(row) {
@@ -76,7 +89,7 @@ export default function ClientsPage() {
     try {
       const data = await rotateClientSecret(id);
       fetchAll();
-      setSecretModal({ open: true, title: 'Secret mới', secret: data.secret });
+      openSecretModal('Secret mới', data.secret);
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -99,7 +112,7 @@ export default function ClientsPage() {
       setCreateOpen(false);
       toast('Đã tạo client mới', 'success');
       fetchAll();
-      setSecretModal({ open: true, title: 'Secret client mới', secret: data.secret });
+      openSecretModal('Secret client mới', data.secret);
     } catch (err) {
       if (err.status === 409) {
         setCreateErrors({ name: 'Tên client đã tồn tại' });
@@ -157,10 +170,9 @@ export default function ClientsPage() {
         const isSelf = currentClient && row.id === currentClient.id;
         const isActive = row.is_active === 1;
         return (
-          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+          <div className={pageStyles.actionCell}>
             <button
-              className={`btn ${isActive ? 'btn-danger' : 'btn-accent'}`}
-              style={{ fontSize: 'var(--font-size-sm)', padding: 'var(--space-1) var(--space-2)' }}
+              className={`btn btn-sm ${isActive ? 'btn-danger' : 'btn-accent'}`}
               disabled={isActive && isSelf}
               title={isActive && isSelf ? 'Không thể vô hiệu chính client đang đăng nhập' : undefined}
               onClick={() => handleToggleActive(row)}
@@ -168,8 +180,7 @@ export default function ClientsPage() {
               {isActive ? 'Vô hiệu' : 'Kích hoạt'}
             </button>
             <button
-              className="btn btn-ghost"
-              style={{ fontSize: 'var(--font-size-sm)', padding: 'var(--space-1) var(--space-2)' }}
+              className="btn btn-ghost btn-sm"
               onClick={() => setConfirmRotateId(row.id)}
             >
               Rotate secret
@@ -181,10 +192,10 @@ export default function ClientsPage() {
   ];
 
   return (
-    <div className={styles.page}>
-      <div className={styles.header}>
-        <h1>Clients</h1>
-        <div className={styles.headerActions}>
+    <div className={pageStyles.page}>
+      <div className={pageStyles.header}>
+        <h1 className={pageStyles.title}>Clients</h1>
+        <div className={pageStyles.actions}>
           <button className="btn" onClick={fetchAll} disabled={loading}>
             <RefreshCw size={14} />
             Làm mới
@@ -197,8 +208,12 @@ export default function ClientsPage() {
       </div>
 
       {loading && rows.length === 0 ? (
-        <div className={styles.spinnerWrap}>
+        <div className={pageStyles.spinnerWrap}>
           <Spinner />
+        </div>
+      ) : error && rows.length === 0 ? (
+        <div className="card">
+          <ErrorState message={error} onRetry={fetchAll} />
         </div>
       ) : (
         <div className="card">
@@ -214,12 +229,6 @@ export default function ClientsPage() {
             }
           />
         </div>
-      )}
-
-      {error && !loading && rows.length === 0 && (
-        <p style={{ color: 'var(--color-danger, red)', marginTop: 'var(--space-2)' }}>
-          {error}
-        </p>
       )}
 
       {/* Modal tạo client mới */}
@@ -263,15 +272,17 @@ export default function ClientsPage() {
         </form>
       </Modal>
 
-      {/* Modal hiển thị secret (tạo mới / rotate) */}
+      {/* Modal hiển thị secret (tạo mới / rotate) — khoá đóng cho tới khi tick xác nhận đã lưu */}
       <Modal
         open={secretModal.open}
         title={secretModal.title}
-        onClose={() => setSecretModal({ open: false, title: '', secret: '' })}
+        onClose={closeSecretModal}
+        closeDisabled={!secretConfirmed}
         footer={
           <button
             className="btn btn-ghost"
-            onClick={() => setSecretModal({ open: false, title: '', secret: '' })}
+            disabled={!secretConfirmed}
+            onClick={closeSecretModal}
           >
             Đóng
           </button>
@@ -286,6 +297,14 @@ export default function ClientsPage() {
             Sao chép
           </button>
         </div>
+        <label className={styles.confirmRow}>
+          <input
+            type="checkbox"
+            checked={secretConfirmed}
+            onChange={(e) => setSecretConfirmed(e.target.checked)}
+          />
+          Tôi đã lưu secret
+        </label>
       </Modal>
 
       {/* Dialog xác nhận rotate secret */}

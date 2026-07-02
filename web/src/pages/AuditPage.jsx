@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { listAudit } from '../api/client.js';
 import { useToast } from '../ui/ToastContext.jsx';
+import { useUrlState } from '../hooks/useUrlState.js';
 import DataTable from '../components/DataTable.jsx';
 import Pagination from '../components/Pagination.jsx';
 import Field from '../components/Field.jsx';
 import FilterBar from '../components/FilterBar.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import Spinner from '../components/Spinner.jsx';
+import ErrorState from '../components/ErrorState.jsx';
 import styles from './AuditPage.module.css';
 
 // Trạng thái rỗng ban đầu của form lọc
@@ -14,14 +16,23 @@ const EMPTY_FILTER = { actor_id: '', action: '', from: '', to: '' };
 
 export default function AuditPage() {
   const { toast } = useToast();
+  const { get, setMany } = useUrlState();
+
+  // Bộ lọc + phân trang đang áp dụng, lấy trực tiếp từ URL
+  const actorId = get('actor_id', '');
+  const action = get('action', '');
+  const from = get('from', '');
+  const to = get('to', '');
+  const limit = Number(get('limit', '50')) || 50;
+  const offset = Number(get('offset', '0')) || 0;
 
   // filterDraft: giá trị đang nhập trên form (chưa áp dụng)
-  // filter: bộ lọc đang thực sự được dùng để query
-  const [filterDraft, setFilterDraft] = useState(EMPTY_FILTER);
-  const [filter, setFilter] = useState(EMPTY_FILTER);
+  const [filterDraft, setFilterDraft] = useState({ actor_id: actorId, action, from, to });
 
-  // Phân trang
-  const [pagination, setPagination] = useState({ limit: 50, offset: 0 });
+  // Đồng bộ filterDraft khi URL thay đổi từ bên ngoài (Back/Forward, F5)
+  useEffect(() => {
+    setFilterDraft({ actor_id: actorId, action, from, to });
+  }, [actorId, action, from, to]);
 
   // Dữ liệu
   const [entries, setEntries] = useState([]);
@@ -29,16 +40,16 @@ export default function AuditPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Tải danh sách audit log; chạy lại khi filter hoặc pagination thay đổi
+  // Tải danh sách audit log; chạy lại khi filter hoặc pagination (từ URL) thay đổi
   const fetchEntries = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const params = { limit: pagination.limit, offset: pagination.offset };
-      if (filter.actor_id) params.actor_id = filter.actor_id;
-      if (filter.action) params.action = filter.action;
-      if (filter.from) params.from = new Date(filter.from).getTime();
-      if (filter.to) params.to = new Date(filter.to).getTime();
+      const params = { limit, offset };
+      if (actorId) params.actor_id = actorId;
+      if (action) params.action = action;
+      if (from) params.from = new Date(from).getTime();
+      if (to) params.to = new Date(to).getTime();
 
       const result = await listAudit(params);
       setEntries(result.entries || []);
@@ -49,7 +60,7 @@ export default function AuditPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, pagination, toast]);
+  }, [actorId, action, from, to, limit, offset, toast]);
 
   useEffect(() => {
     fetchEntries();
@@ -57,15 +68,19 @@ export default function AuditPage() {
 
   // Áp dụng bộ lọc và reset về trang đầu
   function handleFilterSubmit() {
-    setFilter({ ...filterDraft });
-    setPagination({ limit: 50, offset: 0 });
+    setMany({
+      actor_id: filterDraft.actor_id,
+      action: filterDraft.action,
+      from: filterDraft.from,
+      to: filterDraft.to,
+      offset: 0,
+    });
   }
 
   // Xóa bộ lọc và reset trang
   function handleFilterReset() {
     setFilterDraft({ ...EMPTY_FILTER });
-    setFilter({ ...EMPTY_FILTER });
-    setPagination({ limit: 50, offset: 0 });
+    setMany({ actor_id: '', action: '', from: '', to: '', offset: 0 });
   }
 
   // Cập nhật một trường trong filterDraft
@@ -73,12 +88,12 @@ export default function AuditPage() {
     setFilterDraft((prev) => ({ ...prev, [key]: value }));
   }
 
-  // Xác định màu của HTTP status code
-  function statusColor(code) {
-    if (code >= 200 && code < 300) return 'var(--color-success)';
-    if (code >= 400 && code < 500) return 'var(--color-warning)';
-    if (code >= 500) return 'var(--color-destructive)';
-    return 'inherit';
+  // Xác định class màu của HTTP status code
+  function statusClass(code) {
+    if (code >= 200 && code < 300) return styles.statusSuccess;
+    if (code >= 400 && code < 500) return styles.statusWarning;
+    if (code >= 500) return styles.statusDestructive;
+    return '';
   }
 
   // Định nghĩa cột bảng
@@ -95,11 +110,7 @@ export default function AuditPage() {
     {
       key: 'actor_id',
       header: 'Actor ID',
-      render: (val) => (
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)' }}>
-          {val}
-        </span>
-      ),
+      render: (val) => <span className={styles.actorId}>{val}</span>,
     },
     {
       key: 'action',
@@ -124,9 +135,7 @@ export default function AuditPage() {
     {
       key: 'status_code',
       header: 'Status',
-      render: (val) => (
-        <span style={{ color: statusColor(val), fontWeight: '600' }}>{val}</span>
-      ),
+      render: (val) => <span className={`${styles.statusCode} ${statusClass(val)}`}>{val}</span>,
     },
     {
       key: 'ip',
@@ -189,36 +198,36 @@ export default function AuditPage() {
         </div>
       )}
 
-      {/* Bảng danh sách */}
-      <div className="table-wrapper">
-        <DataTable
-          columns={columns}
-          rows={entries}
-          rowKey={(row, i) => (row.id != null ? row.id : i)}
-          empty={
-            <EmptyState
-              title="Không có bản ghi audit"
-              message="Thử thay đổi bộ lọc để xem kết quả khác"
+      {/* Lỗi tải danh sách và không có dữ liệu để hiển thị */}
+      {error && !loading && entries.length === 0 ? (
+        <ErrorState message={error} onRetry={fetchEntries} />
+      ) : (
+        <>
+          {/* Bảng danh sách */}
+          <div className="table-wrapper">
+            <DataTable
+              columns={columns}
+              rows={entries}
+              rowKey={(row, i) => (row.id != null ? row.id : i)}
+              empty={
+                <EmptyState
+                  title="Không có bản ghi audit"
+                  message="Thử thay đổi bộ lọc để xem kết quả khác"
+                />
+              }
             />
-          }
-        />
-      </div>
+          </div>
 
-      {/* Phân trang */}
-      {total > 0 && (
-        <Pagination
-          limit={pagination.limit}
-          offset={pagination.offset}
-          total={total}
-          onChange={(off, lim) =>
-            setPagination({ offset: off, limit: lim ?? pagination.limit })
-          }
-        />
-      )}
-
-      {/* Thông báo lỗi khi fetch thất bại và không có dữ liệu */}
-      {error && !loading && entries.length === 0 && (
-        <p style={{ color: 'var(--color-destructive)', marginTop: 'var(--space-2)' }}>{error}</p>
+          {/* Phân trang */}
+          {total > 0 && (
+            <Pagination
+              limit={limit}
+              offset={offset}
+              total={total}
+              onChange={(off, lim) => setMany({ offset: off, limit: lim ?? limit })}
+            />
+          )}
+        </>
       )}
     </div>
   );

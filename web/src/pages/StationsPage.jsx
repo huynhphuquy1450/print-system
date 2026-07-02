@@ -1,41 +1,23 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { listBranches, listPrinters, updateBranch, getConfig } from '../api/client.js';
+import { listBranches, listPrinters, updateBranch } from '../api/client.js';
 import { useToast } from '../ui/ToastContext.jsx';
+import { isOnline, relativeTime, effectivePrinterStatus, useFreshMs } from '../lib/presence.js';
+import { usePolling } from '../hooks/usePolling.js';
 import StatusBadge from '../components/StatusBadge.jsx';
 import EmptyState from '../components/EmptyState.jsx';
+import ErrorState from '../components/ErrorState.jsx';
 import Spinner from '../components/Spinner.jsx';
 import Modal from '../components/Modal.jsx';
 import Field from '../components/Field.jsx';
 import styles from './StationsPage.module.css';
 
-// Fallback nếu fetch /api/v1/config lỗi (server là nguồn sự thật cho ngưỡng tươi — TASK 8).
-const DEFAULT_FRESH_MS = 60_000;
-
-function isOnline(last_seen_at, freshMs) {
-  return last_seen_at != null && Date.now() - last_seen_at < freshMs;
-}
-
-function relativeTime(last_seen_at) {
-  if (last_seen_at == null) return 'chưa kết nối';
-  const diffSec = Math.floor((Date.now() - last_seen_at) / 1000);
-  if (diffSec < 60) return `${diffSec} giây trước`;
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin} phút trước`;
-  return `${Math.floor(diffMin / 60)} giờ trước`;
-}
-
-function effectivePrinterStatus(printer, freshMs) {
-  if (printer.last_seen_at == null) return 'unknown';
-  if (!isOnline(printer.last_seen_at, freshMs)) return 'offline';
-  return printer.status;
-}
-
 export default function StationsPage() {
   const { toast } = useToast();
+  const freshMs = useFreshMs();
   const [stations, setStations] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [freshMs, setFreshMs] = useState(DEFAULT_FRESH_MS);
+  const [error, setError] = useState(null);
 
   // State cho modal đổi tên trạm
   const [editBranch, setEditBranch] = useState(null);
@@ -45,6 +27,7 @@ export default function StationsPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const { branches: list } = await listBranches();
       const result = await Promise.all(
@@ -59,24 +42,15 @@ export default function StationsPage() {
       );
       setStations(result);
     } catch (err) {
+      setError(err.message);
       toast(err.message, 'error');
     } finally {
       setLoading(false);
     }
   }, [toast]);
 
-  useEffect(() => {
-    fetchAll();
-    const id = setInterval(fetchAll, 12000);
-    return () => clearInterval(id);
-  }, [fetchAll]);
-
-  // Lấy ngưỡng tươi từ server (1 nguồn sự thật); giữ default nếu lỗi.
-  useEffect(() => {
-    getConfig()
-      .then((cfg) => setFreshMs(cfg?.presence?.freshMs ?? DEFAULT_FRESH_MS))
-      .catch(() => {});
-  }, []);
+  // Poll mỗi 12 giây để cập nhật last_seen_at / trạng thái máy in
+  usePolling(fetchAll, 12000);
 
   function handleOpenEdit(branch) {
     setEditBranch(branch);
@@ -120,11 +94,15 @@ export default function StationsPage() {
 
       {loading && stations.length === 0 && (
         <div className={styles.spinnerWrap}>
-          <Spinner />
+          <Spinner size="md" />
         </div>
       )}
 
-      {!loading && stations.length === 0 && (
+      {error && !loading && stations.length === 0 && (
+        <ErrorState message={error} onRetry={fetchAll} />
+      )}
+
+      {!loading && !error && stations.length === 0 && (
         <EmptyState title="Không có chi nhánh nào" message="Chưa có dữ liệu chi nhánh từ hệ thống" />
       )}
 
@@ -136,7 +114,7 @@ export default function StationsPage() {
                 <span className={styles.branchName}>{branch.name}</span>
                 <StatusBadge status={isOnline(branch.last_seen_at, freshMs) ? 'online' : 'offline'} />
                 <button
-                  className="btn btn-ghost"
+                  className="btn btn-ghost btn-sm"
                   onClick={() => handleOpenEdit(branch)}
                 >
                   Đổi tên
@@ -146,7 +124,7 @@ export default function StationsPage() {
                 <span className={styles.cardLocation}>{branch.location}</span>
               )}
               <span className={styles.cardLastSeen}>
-                Last seen: {relativeTime(branch.last_seen_at)}
+                Lần cuối online: {relativeTime(branch.last_seen_at)}
               </span>
             </div>
 
@@ -154,7 +132,7 @@ export default function StationsPage() {
               {(() => {
                 const approvedPrinters = branch.printers.filter((p) => p.approved !== 0);
                 return approvedPrinters.length === 0 ? (
-                  <EmptyState title="Chưa có máy in" />
+                  <span className={styles.printerEmpty}>Chưa có máy in</span>
                 ) : (
                   approvedPrinters.map((printer) => (
                     <div key={printer.id} className={styles.printerRow}>

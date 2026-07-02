@@ -1,11 +1,10 @@
 import styles from './Spinner.module.css';
 
-/** @param {{ size?: number }} props */
-export default function Spinner({ size = 20 }) {
+/** @param {{ size?: 'sm' | 'md' }} props */
+export default function Spinner({ size = 'md' }) {
   return (
     <span
-      className={styles.spinner}
-      style={{ width: size, height: size }}
+      className={`${styles.spinner} ${styles[size] || styles.md}`}
       role="status"
       aria-label="Đang tải"
     />

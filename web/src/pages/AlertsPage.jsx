@@ -1,17 +1,23 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Trash2 } from 'lucide-react';
-import { listBranches, listAlerts, deleteAlert } from '../api/client.js';
+import { listAlerts, deleteAlert } from '../api/client.js';
+import { getBranches } from '../api/branchesCache.js';
 import { useToast } from '../ui/ToastContext.jsx';
+import { usePolling } from '../hooks/usePolling.js';
+import { useUrlState } from '../hooks/useUrlState.js';
 import DataTable from '../components/DataTable.jsx';
 import Pagination from '../components/Pagination.jsx';
 import Field from '../components/Field.jsx';
 import FilterBar from '../components/FilterBar.jsx';
 import EmptyState from '../components/EmptyState.jsx';
+import ErrorState from '../components/ErrorState.jsx';
 import Spinner from '../components/Spinner.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import page from '../components/Page.module.css';
 import styles from './AlertsPage.module.css';
 
 const EMPTY_FILTER = { alert_type: '', branch_id: '', from: '', to: '' };
+const DEFAULT_LIMIT = 50;
 
 const ALERT_LABELS = {
   'branch.offline': 'Chi nhánh mất kết nối',
@@ -24,21 +30,41 @@ const ALERT_LABELS = {
   'printer.no_toner': 'Hết mực',
 };
 
-// Loại alert "phục hồi" → màu xanh; còn lại → màu đỏ/cam
-function alertColor(alertType) {
+// Loại alert "phục hồi" → chấm xanh (success); còn lại → chấm đỏ (destructive)
+function alertDotClass(alertType) {
   if (alertType === 'branch.online' || alertType === 'printer.online') {
-    return 'var(--color-success)';
+    return styles.typeDotSuccess;
   }
-  return 'var(--color-destructive, var(--color-danger, #dc2626))';
+  return styles.typeDotDanger;
 }
 
 export default function AlertsPage() {
   const { toast } = useToast();
+  const { get, setMany } = useUrlState();
 
   const [branches, setBranches] = useState([]);
-  const [filterDraft, setFilterDraft] = useState(EMPTY_FILTER);
-  const [filter, setFilter] = useState(EMPTY_FILTER);
-  const [pagination, setPagination] = useState({ limit: 50, offset: 0 });
+
+  // Filter/pagination hiện tại — đọc trực tiếp từ URL (nguồn sự thật duy nhất),
+  // nên F5 và nút Back/Forward của trình duyệt luôn khôi phục đúng view.
+  const alertType = get('alert_type', '');
+  const branchId = get('branch_id', '');
+  const from = get('from', '');
+  const to = get('to', '');
+  const limit = Number(get('limit', String(DEFAULT_LIMIT))) || DEFAULT_LIMIT;
+  const offset = Number(get('offset', '0')) || 0;
+
+  // filterDraft: giá trị đang nhập trên form (chưa áp dụng). Đồng bộ lại từ URL
+  // mỗi khi giá trị áp dụng thay đổi (submit, reset, Back/Forward, F5).
+  const [filterDraft, setFilterDraft] = useState({
+    alert_type: alertType,
+    branch_id: branchId,
+    from,
+    to,
+  });
+
+  useEffect(() => {
+    setFilterDraft({ alert_type: alertType, branch_id: branchId, from, to });
+  }, [alertType, branchId, from, to]);
 
   const [alerts, setAlerts] = useState([]);
   const [total, setTotal] = useState(0);
@@ -47,52 +73,67 @@ export default function AlertsPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
+  // true sau khi đã tải thành công ít nhất 1 lần — dùng để phân biệt lỗi
+  // ở lần tải đầu (chặn cả bảng) với lỗi khi poll nền (giữ nguyên dữ liệu cũ)
+  const loadedOnceRef = useRef(false);
+
   const branchMap = Object.fromEntries(branches.map((b) => [String(b.id), b.name]));
 
-  // Tải danh sách chi nhánh một lần khi mount
+  // Tải danh sách chi nhánh một lần (dùng cache dùng chung giữa các trang)
   useEffect(() => {
-    listBranches()
-      .then(({ branches: list }) => setBranches(list || []))
+    getBranches()
+      .then(setBranches)
       .catch(() => {});
   }, []);
 
   const fetchAlerts = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
-      const params = { limit: pagination.limit, offset: pagination.offset };
-      if (filter.alert_type) params.alert_type = filter.alert_type;
-      if (filter.branch_id) params.branch_id = filter.branch_id;
-      if (filter.from) params.from = new Date(filter.from).getTime();
-      if (filter.to) params.to = new Date(filter.to).getTime();
+      const params = { limit, offset };
+      if (alertType) params.alert_type = alertType;
+      if (branchId) params.branch_id = branchId;
+      if (from) params.from = new Date(from).getTime();
+      if (to) params.to = new Date(to).getTime();
 
       const result = await listAlerts(params);
       setAlerts(result.alerts || []);
       setTotal(result.total || 0);
+      setError(null);
+      loadedOnceRef.current = true;
     } catch (err) {
-      toast(err.message, 'error');
-      setError(err.message);
+      if (loadedOnceRef.current) {
+        // Đã có dữ liệu hiển thị — đây là lỗi poll nền, không xóa bảng hiện có
+        toast(err.message, 'error');
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
-  }, [filter, pagination, toast]);
+  }, [alertType, branchId, from, to, limit, offset, toast]);
 
-  // Poll mỗi 12 giây
+  // Fetch lại mỗi khi filter/pagination trên URL thay đổi
   useEffect(() => {
     fetchAlerts();
-    const id = setInterval(fetchAlerts, 12000);
-    return () => clearInterval(id);
   }, [fetchAlerts]);
 
+  // Poll nền mỗi 12 giây với tham số hiện tại (tạm dừng khi tab bị ẩn)
+  usePolling(fetchAlerts, 12000);
+
   function handleFilterSubmit() {
-    setFilter({ ...filterDraft });
-    setPagination({ limit: 50, offset: 0 });
+    setMany({ ...filterDraft, offset: '' });
   }
 
   function handleFilterReset() {
     setFilterDraft({ ...EMPTY_FILTER });
-    setFilter({ ...EMPTY_FILTER });
-    setPagination({ limit: 50, offset: 0 });
+    setMany({ ...EMPTY_FILTER, offset: '' });
+  }
+
+  function handlePaginationChange(newOffset, newLimit) {
+    setMany({
+      offset: newOffset || '',
+      limit: newLimit && newLimit !== DEFAULT_LIMIT ? newLimit : '',
+    });
   }
 
   async function handleConfirmDelete() {
@@ -135,10 +176,7 @@ export default function AlertsPage() {
       header: 'Loại cảnh báo',
       render: (val) => (
         <span className={styles.typeBadge}>
-          <span
-            className={styles.typeDot}
-            style={{ backgroundColor: alertColor(val) }}
-          />
+          <span className={`${styles.typeDot} ${alertDotClass(val)}`} />
           {ALERT_LABELS[val] || val}
         </span>
       ),
@@ -152,23 +190,24 @@ export default function AlertsPage() {
       key: '_actions',
       header: 'Hành động',
       render: (_, row) => (
-        <button
-          className="btn btn-danger"
-          style={{ fontSize: 'var(--font-size-sm)', padding: 'var(--space-1) var(--space-2)' }}
-          disabled={deletingId === row.id}
-          onClick={() => setConfirmDeleteId(row.id)}
-        >
-          <Trash2 size={14} />
-          Xóa
-        </button>
+        <span className={page.actionCell}>
+          <button
+            className="btn btn-danger btn-sm"
+            disabled={deletingId === row.id}
+            onClick={() => setConfirmDeleteId(row.id)}
+          >
+            <Trash2 size={14} />
+            Xóa
+          </button>
+        </span>
       ),
     },
   ];
 
   return (
-    <div className={styles.page}>
-      <div className={styles.header}>
-        <h1>Lịch sử Cảnh báo</h1>
+    <div className={page.page}>
+      <div className={page.header}>
+        <h1 className={page.title}>Lịch sử Cảnh báo</h1>
         <span className={styles.total}>Tổng: {total}</span>
       </div>
 
@@ -222,39 +261,35 @@ export default function AlertsPage() {
         </Field>
       </FilterBar>
 
-      {loading && alerts.length === 0 && (
-        <div className={styles.spinnerWrap}>
+      {loading && alerts.length === 0 && !error && (
+        <div className={page.spinnerWrap}>
           <Spinner />
         </div>
       )}
 
-      <DataTable
-        columns={columns}
-        rows={alerts}
-        rowKey="id"
-        empty={
-          <EmptyState
-            title="Chưa có cảnh báo nào"
-            message="Thử thay đổi bộ lọc"
-          />
-        }
-      />
-
-      {total > 0 && (
-        <Pagination
-          limit={pagination.limit}
-          offset={pagination.offset}
-          total={total}
-          onChange={(off, lim) =>
-            setPagination({ offset: off, limit: lim ?? pagination.limit })
+      {error && alerts.length === 0 ? (
+        <ErrorState message={error} onRetry={fetchAlerts} />
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={alerts}
+          rowKey="id"
+          empty={
+            <EmptyState
+              title="Chưa có cảnh báo nào"
+              message="Thử thay đổi bộ lọc"
+            />
           }
         />
       )}
 
-      {error && !loading && alerts.length === 0 && (
-        <p style={{ color: 'var(--color-danger, red)', marginTop: 'var(--space-2)' }}>
-          {error}
-        </p>
+      {total > 0 && (
+        <Pagination
+          limit={limit}
+          offset={offset}
+          total={total}
+          onChange={handlePaginationChange}
+        />
       )}
 
       <ConfirmDialog

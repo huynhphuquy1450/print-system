@@ -7,7 +7,9 @@ import Modal from '../components/Modal.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import Field from '../components/Field.jsx';
 import EmptyState from '../components/EmptyState.jsx';
+import ErrorState from '../components/ErrorState.jsx';
 import Spinner from '../components/Spinner.jsx';
+import StatusBadge from '../components/StatusBadge.jsx';
 import styles from './WebhooksPage.module.css';
 
 // Trạng thái khởi tạo cho form tạo webhook
@@ -19,6 +21,7 @@ export default function WebhooksPage() {
   // Danh sách webhook
   const [webhooks, setWebhooks] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   // Trạng thái xoá
   const [deletingId, setDeletingId] = useState(null);
@@ -31,19 +34,22 @@ export default function WebhooksPage() {
 
   // Modal hiển thị secret sau khi tạo thành công
   const [secretModal, setSecretModal] = useState({ open: false, secret: '' });
+  // Checkbox xác nhận đã lưu secret — bắt buộc trước khi đóng modal
+  const [secretConfirmed, setSecretConfirmed] = useState(false);
 
   // Tải danh sách webhooks từ server
   const fetchWebhooks = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const result = await listWebhooks();
       setWebhooks(result.webhooks || []);
     } catch (err) {
-      toast(err.message, 'error');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   // Tải lần đầu khi mount
   useEffect(() => {
@@ -74,7 +80,8 @@ export default function WebhooksPage() {
       const result = await createWebhook(payload);
       // Xoá form sau khi tạo thành công
       setCreateForm(EMPTY_FORM);
-      // Hiển thị modal với secret trả về
+      // Hiển thị modal với secret trả về, chờ xác nhận đã lưu
+      setSecretConfirmed(false);
       setSecretModal({ open: true, secret: result.secret });
     } catch (err) {
       toast(err.message, 'error');
@@ -83,8 +90,9 @@ export default function WebhooksPage() {
     }
   }
 
-  // Đóng modal secret và reload danh sách
+  // Đóng modal secret (chỉ khi đã xác nhận) và reload danh sách
   function handleSecretModalClose() {
+    if (!secretConfirmed) return;
     setSecretModal({ open: false, secret: '' });
     fetchWebhooks();
   }
@@ -111,10 +119,7 @@ export default function WebhooksPage() {
       key: 'id',
       header: 'ID',
       render: (val) => (
-        <span
-          style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)' }}
-          title={val}
-        >
+        <span className={styles.idCell} title={val}>
           {val}
         </span>
       ),
@@ -123,16 +128,7 @@ export default function WebhooksPage() {
       key: 'url',
       header: 'URL',
       render: (val) => (
-        <span
-          title={val}
-          style={{
-            maxWidth: '200px',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            display: 'block',
-          }}
-        >
+        <span className={styles.urlCell} title={val}>
           {val}
         </span>
       ),
@@ -145,16 +141,7 @@ export default function WebhooksPage() {
     {
       key: 'is_active',
       header: 'Trạng thái',
-      render: (val) => (
-        <span
-          style={{
-            color: val ? 'var(--color-success)' : 'var(--color-muted-fg)',
-            fontWeight: '600',
-          }}
-        >
-          {val ? 'Bật' : 'Tắt'}
-        </span>
-      ),
+      render: (val) => <StatusBadge status={val ? 'active' : 'inactive'} />,
     },
     {
       key: 'created_at',
@@ -166,8 +153,7 @@ export default function WebhooksPage() {
       header: 'Hành động',
       render: (_, row) => (
         <button
-          className="btn btn-danger"
-          style={{ fontSize: 'var(--font-size-sm)', padding: 'var(--space-1) var(--space-2)' }}
+          className="btn btn-danger btn-sm"
           disabled={deletingId === row.id}
           onClick={() => setConfirmDeleteId(row.id)}
         >
@@ -239,6 +225,8 @@ export default function WebhooksPage() {
           <div className={styles.spinnerWrap}>
             <Spinner />
           </div>
+        ) : error ? (
+          <ErrorState message={error} onRetry={fetchWebhooks} />
         ) : (
           <DataTable
             columns={columns}
@@ -254,13 +242,18 @@ export default function WebhooksPage() {
         )}
       </div>
 
-      {/* Modal hiển thị secret sau khi tạo thành công */}
+      {/* Modal hiển thị secret sau khi tạo thành công — không đóng được cho tới khi xác nhận đã lưu */}
       <Modal
         open={secretModal.open}
         title="Webhook đã tạo"
         onClose={handleSecretModalClose}
+        closeDisabled={!secretConfirmed}
         footer={
-          <button className="btn btn-primary" onClick={handleSecretModalClose}>
+          <button
+            className="btn btn-primary"
+            disabled={!secretConfirmed}
+            onClick={handleSecretModalClose}
+          >
             Đã lưu, đóng lại
           </button>
         }
@@ -273,19 +266,8 @@ export default function WebhooksPage() {
           </span>
         </div>
         <div>
-          <span style={{ fontWeight: '600' }}>Secret:</span>
-          <div
-            style={{
-              fontFamily: 'var(--font-mono)',
-              wordBreak: 'break-all',
-              padding: 'var(--space-2)',
-              background: 'var(--color-muted)',
-              borderRadius: 'var(--radius)',
-              margin: 'var(--space-2) 0',
-            }}
-          >
-            {secretModal.secret}
-          </div>
+          <span className={styles.secretLabel}>Secret:</span>
+          <div className={styles.secretBox}>{secretModal.secret}</div>
         </div>
         {/* Nút copy secret vào clipboard */}
         <div className={styles.copyBtn}>
@@ -301,6 +283,15 @@ export default function WebhooksPage() {
             Sao chép Secret
           </button>
         </div>
+        {/* Checkbox bắt buộc xác nhận trước khi có thể đóng modal */}
+        <label className={styles.confirmRow}>
+          <input
+            type="checkbox"
+            checked={secretConfirmed}
+            onChange={(e) => setSecretConfirmed(e.target.checked)}
+          />
+          Tôi đã lưu secret
+        </label>
       </Modal>
 
       {/* Dialog xác nhận xoá */}

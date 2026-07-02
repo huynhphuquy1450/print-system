@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { listBranches, createJob, bulkCreate } from '../api/client.js';
+import { createJob, bulkCreate } from '../api/client.js';
+import { getBranches } from '../api/branchesCache.js';
 import { useToast } from '../ui/ToastContext.jsx';
 import Field from '../components/Field.jsx';
 import Spinner from '../components/Spinner.jsx';
@@ -20,10 +21,10 @@ export default function UploadPage() {
   // Danh sách chi nhánh tải khi mount
   const [branches, setBranches] = useState([]);
 
-  // Tải danh sách chi nhánh một lần; bỏ qua lỗi
+  // Tải danh sách chi nhánh một lần (qua cache dùng chung); bỏ qua lỗi
   useEffect(() => {
-    listBranches()
-      .then(({ branches: list }) => setBranches(list || []))
+    getBranches()
+      .then((list) => setBranches(list || []))
       .catch(() => {});
   }, []);
 
@@ -297,7 +298,7 @@ export default function UploadPage() {
                 className="btn btn-primary"
                 disabled={singleLoading}
               >
-                {singleLoading ? <Spinner size={16} /> : 'Tạo job'}
+                {singleLoading ? <Spinner size="sm" /> : 'Tạo job'}
               </button>
             </div>
           </form>
@@ -415,7 +416,7 @@ export default function UploadPage() {
                 className="btn btn-primary"
                 disabled={bulkLoading || files.length === 0}
               >
-                {bulkLoading ? <Spinner size={16} /> : `Tạo ${files.length} job`}
+                {bulkLoading ? <Spinner size="sm" /> : `Tạo ${files.length} job`}
               </button>
             </div>
           </form>
@@ -424,7 +425,7 @@ export default function UploadPage() {
           {bulkResult && (
             <div className={styles.bulkResult}>
               {/* Danh sách tạo thành công */}
-              <div className={styles.resultSection}>
+              <div className={`${styles.resultSection} ${styles.successSection}`}>
                 <h3 className={styles.resultHeading}>
                   Thành công ({bulkResult.created?.length ?? 0})
                 </h3>
@@ -452,7 +453,7 @@ export default function UploadPage() {
 
               {/* Danh sách thất bại */}
               {bulkResult.failed?.length > 0 && (
-                <div className={styles.resultSection}>
+                <div className={`${styles.resultSection} ${styles.failSection}`}>
                   <h3 className={`${styles.resultHeading} ${styles.failHeading}`}>
                     Thất bại ({bulkResult.failed.length})
                   </h3>

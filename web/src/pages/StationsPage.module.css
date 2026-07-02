@@ -38,6 +38,11 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+  transition: box-shadow 150ms;
+}
+
+.card:hover {
+  box-shadow: var(--shadow);
 }
 
 /* Phần trên card: tên + badge + location + last seen */
@@ -72,12 +77,11 @@
   color: var(--color-muted-fg);
 }
 
-/* Danh sách máy in */
+/* Danh sách máy in — gọn, chữ nhỏ, tách hàng bằng viền mảnh */
 .printerList {
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-2) var(--space-4) var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
 }
 
 /* Mỗi hàng máy in */
@@ -89,6 +93,10 @@
   padding: var(--space-1) 0;
 }
 
+.printerRow + .printerRow {
+  border-top: 1px solid var(--color-border);
+}
+
 .printerName {
   font-size: var(--font-size-sm);
   color: var(--color-fg);
@@ -97,4 +105,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Thông báo khi chi nhánh chưa có máy in nào */
+.printerEmpty {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted-fg);
+  padding: var(--space-1) 0;
 }

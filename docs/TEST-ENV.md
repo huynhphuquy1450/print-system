@@ -66,6 +66,27 @@ Windows tự đăng ký chi nhánh — xem `docs/DEV-ONBOARDING.md` bước 3).
    ```
    Chi tiết webhook + toàn bộ API xem `docs/API.md`.
 
+## Cập nhật server (dành cho chủ dự án vận hành)
+
+Server Express giờ tự phục vụ luôn web-admin SPA (`web/dist`), nhưng `web/dist` bị gitignore nên
+**phải build lại trên máy đích** mỗi lần sync code mới — không tự có sau `git pull`. Quy trình cập
+nhật:
+
+```bash
+git pull origin main
+cd web && npm ci && npm run build   # tạo web/dist — bắt buộc trước khi restart
+cd ..
+pm2 restart print-service
+pm2 save
+```
+
+> ⚠️ Nếu truy cập `/` trả về 404 (thay vì trang web-admin) → `web/dist` đang thiếu, chạy lại bước
+> `npm run build` ở trên rồi restart.
+>
+> ⚠️ Coi chừng tiến trình `npm start`/`npm run dev` mồ côi (chạy tay qua SSH, không qua pm2) vẫn giữ
+> cổng 3000 — khi đó `pm2 restart print-service` sẽ báo `EADDRINUSE`. Kiểm tra bằng
+> `lsof -i :3000` hoặc `ss -tlnp | grep :3000`, kill tiến trình mồ côi trước khi restart qua pm2.
+
 ## Đây không phải production của bạn
 
 Môi trường này chỉ để bạn làm quen nhanh với API. Khi sẵn sàng triển khai thật (server riêng, chi

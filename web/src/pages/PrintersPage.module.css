@@ -1,0 +1,18 @@
+/* Ô hành động trong bảng: các nút Duyệt / Đặt mặc định / Xóa, xuống dòng khi chật */
+.actionsCell {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+/* Nhãn icon + chữ: "Chờ duyệt", "Mặc định" */
+.inlineLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Icon check của cột "Mặc định" */
+.defaultIcon {
+  color: var(--color-success);
+}

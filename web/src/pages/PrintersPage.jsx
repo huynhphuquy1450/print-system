@@ -1,12 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Plus } from 'lucide-react';
-import {
-  listBranches,
-  listPrinters,
-  createPrinter,
-  updatePrinter,
-  deletePrinter,
-} from '../api/client.js';
+import { RefreshCw, Plus, CheckCircle2 } from 'lucide-react';
+import { listPrinters, createPrinter, updatePrinter, deletePrinter } from '../api/client.js';
+import { getBranches } from '../api/branchesCache.js';
+import { effectivePrinterStatus, useFreshMs } from '../lib/presence.js';
 import { useToast } from '../ui/ToastContext.jsx';
 import DataTable from '../components/DataTable.jsx';
 import Modal from '../components/Modal.jsx';
@@ -14,16 +10,21 @@ import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import Field from '../components/Field.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import EmptyState from '../components/EmptyState.jsx';
+import ErrorState from '../components/ErrorState.jsx';
 import Spinner from '../components/Spinner.jsx';
+import page from '../components/Page.module.css';
+import styles from './PrintersPage.module.css';
 
 const EMPTY_FORM = { branch_id: '', name: '', is_default: false };
 
 export default function PrintersPage() {
   const { toast } = useToast();
+  const freshMs = useFreshMs();
 
   const [rows, setRows] = useState([]);
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   // Xác nhận xóa / từ chối
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -34,12 +35,12 @@ export default function PrintersPage() {
   const [createLoading, setCreateLoading] = useState(false);
   const [createErrors, setCreateErrors] = useState({});
 
-  // Tải toàn bộ: branches → printers theo từng branch
+  // Tải toàn bộ: branches (từ cache dùng chung) → printers theo từng branch
   const fetchAll = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const { branches: list } = await listBranches();
-      const branchList = list || [];
+      const branchList = await getBranches();
       setBranches(branchList);
       const results = await Promise.all(
         branchList.map(async (branch) => {
@@ -53,11 +54,11 @@ export default function PrintersPage() {
       );
       setRows(results.flat());
     } catch (err) {
-      toast(err.message, 'error');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   useEffect(() => {
     fetchAll();
@@ -142,7 +143,7 @@ export default function PrintersPage() {
     {
       key: 'status',
       header: 'Trạng thái',
-      render: (val) => <StatusBadge status={val || 'unknown'} />,
+      render: (_val, row) => <StatusBadge status={effectivePrinterStatus(row, freshMs)} />,
     },
     {
       key: 'source',
@@ -154,7 +155,7 @@ export default function PrintersPage() {
       header: 'Duyệt',
       render: (val) =>
         val == 0 ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+          <span className={styles.inlineLabel}>
             <StatusBadge status="pending" />
             Chờ duyệt
           </span>
@@ -165,36 +166,32 @@ export default function PrintersPage() {
     {
       key: 'is_default',
       header: 'Mặc định',
-      render: (val) => (val ? '✓ Mặc định' : '—'),
+      render: (val) =>
+        val ? (
+          <span className={styles.inlineLabel}>
+            <CheckCircle2 size={14} className={styles.defaultIcon} aria-hidden="true" />
+            Mặc định
+          </span>
+        ) : (
+          '—'
+        ),
     },
     {
       key: '_actions',
       header: 'Hành động',
       render: (_, row) => (
-        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+        <div className={styles.actionsCell}>
           {row.approved == 0 && (
-            <button
-              className="btn btn-primary"
-              style={{ fontSize: 'var(--font-size-sm)', padding: 'var(--space-1) var(--space-2)' }}
-              onClick={() => handleApprove(row.id)}
-            >
+            <button className="btn btn-primary btn-sm" onClick={() => handleApprove(row.id)}>
               Duyệt
             </button>
           )}
           {!row.is_default && (
-            <button
-              className="btn"
-              style={{ fontSize: 'var(--font-size-sm)', padding: 'var(--space-1) var(--space-2)' }}
-              onClick={() => handleSetDefault(row.id)}
-            >
+            <button className="btn btn-sm" onClick={() => handleSetDefault(row.id)}>
               Đặt mặc định
             </button>
           )}
-          <button
-            className="btn btn-danger"
-            style={{ fontSize: 'var(--font-size-sm)', padding: 'var(--space-1) var(--space-2)' }}
-            onClick={() => setConfirmDeleteId(row.id)}
-          >
+          <button className="btn btn-danger btn-sm" onClick={() => setConfirmDeleteId(row.id)}>
             {row.approved == 0 ? 'Từ chối' : 'Xóa'}
           </button>
         </div>
@@ -203,17 +200,10 @@ export default function PrintersPage() {
   ];
 
   return (
-    <div style={{ padding: 'var(--space-4)' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 'var(--space-4)',
-        }}
-      >
-        <h1>Máy in</h1>
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+    <div className={page.page}>
+      <div className={page.header}>
+        <h1 className={page.title}>Máy in</h1>
+        <div className={page.actions}>
           <button className="btn" onClick={fetchAll} disabled={loading}>
             <RefreshCw size={14} />
             Làm mới
@@ -225,8 +215,12 @@ export default function PrintersPage() {
         </div>
       </div>
 
-      {loading && rows.length === 0 ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-8)' }}>
+      {error && !loading ? (
+        <div className="card">
+          <ErrorState message={error} onRetry={fetchAll} />
+        </div>
+      ) : loading && rows.length === 0 ? (
+        <div className={page.spinnerWrap}>
           <Spinner />
         </div>
       ) : (

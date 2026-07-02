@@ -1,0 +1,14 @@
+/* Hàng tiêu đề của card "Cảnh báo gần nhất" — tên card bên trái, nút "Xem tất cả" bên phải */
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.cardTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-fg);
+}

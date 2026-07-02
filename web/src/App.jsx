@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth, ProtectedRoute } from './auth/AuthContext.jsx';
 import Layout from './components/Layout.jsx';
 import LoginPage from './pages/LoginPage.jsx';
+import DashboardPage from './pages/DashboardPage.jsx';
 import JobsPage from './pages/JobsPage.jsx';
 import UploadPage from './pages/UploadPage.jsx';
 import AuditPage from './pages/AuditPage.jsx';
@@ -13,7 +14,7 @@ import ClientsPage from './pages/ClientsPage.jsx';
 
 function RootRedirect() {
   const { isAuthed } = useAuth();
-  return <Navigate to={isAuthed ? '/jobs' : '/login'} replace />;
+  return <Navigate to={isAuthed ? '/dashboard' : '/login'} replace />;
 }
 
 export default function App() {
@@ -28,7 +29,8 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Navigate to="/jobs" replace />} />
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/jobs"     element={<JobsPage />} />
         <Route path="/upload"   element={<UploadPage />} />
         <Route path="/audit"    element={<AuditPage />} />

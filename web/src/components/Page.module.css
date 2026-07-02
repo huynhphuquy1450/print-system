@@ -1,0 +1,122 @@
+/* Lớp dùng chung cho khung trang (page shell) — các trang import và tái sử dụng */
+
+.page {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-fg);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.spinnerWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8);
+}
+
+.actionCell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+}
+
+.kpiCard {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-4);
+  border-left: 4px solid transparent;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.kpiValue {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--color-fg);
+}
+
+.kpiLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted-fg);
+}
+
+.kpiOk {
+  border-left-color: var(--color-success);
+}
+
+.kpiWarn {
+  border-left-color: var(--color-warning);
+}
+
+.kpiDanger {
+  border-left-color: var(--color-destructive);
+}
+
+/* ── ErrorBoundary — khung căn giữa toàn trang khi có lỗi render ── */
+.errorBoundary {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+}
+
+.errorBoundaryCard {
+  max-width: 420px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.errorIcon {
+  color: var(--color-destructive);
+}
+
+.errorTitle {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.errorDetail {
+  color: var(--color-muted-fg);
+  font-size: var(--font-size-sm);
+}

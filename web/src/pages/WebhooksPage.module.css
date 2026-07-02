@@ -49,3 +49,43 @@
 .copyBtn {
   margin-top: var(--space-2);
 }
+
+/* Checkbox xác nhận đã lưu secret trong modal */
+.confirmRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+/* Ô ID trong bảng danh sách — dùng font mono */
+.idCell {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+/* Ô URL trong bảng danh sách — cắt bớt với "…" khi quá dài */
+.urlCell {
+  display: block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Nhãn "Secret:" trong modal */
+.secretLabel {
+  font-weight: 600;
+}
+
+/* Khối hiển thị secret: mono, nền xám, bo góc */
+.secretBox {
+  font-family: var(--font-mono);
+  word-break: break-all;
+  padding: var(--space-2);
+  background: var(--color-muted);
+  border-radius: var(--radius);
+  margin: var(--space-2) 0;
+}
