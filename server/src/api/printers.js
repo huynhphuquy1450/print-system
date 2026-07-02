@@ -9,17 +9,35 @@ const { validate } = require('../middleware/validate');
 const alertService = require('../services/alert-service');
 
 /**
- * GET /api/printers?branch_id=X (Client JWT) - list printers of branch
+ * GET /api/printers?branch_id=X (Client JWT) - list printers of branch.
+ * branch_id is optional: when absent, lists printers across ALL branches (ERP picker).
+ * Optional filters: status (must be in VALID_STATUSES), approved ('0' or '1').
  */
 router.get('/', verifyClient, async (req, res, next) => {
  try {
  const branchId = req.query.branch_id;
- if (!branchId) {
- return res.status(400).json({ error: 'branch_id query param is required' });
+ const { status, approved } = req.query;
+ // VALID_STATUSES is declared further down in this file, but that's fine here:
+ // this closure only runs on a request, which happens after the module has fully loaded.
+ if (status !== undefined && !VALID_STATUSES.has(status)) {
+ return res.status(400).json({ error: `Invalid status: ${status}` });
  }
+ if (approved !== undefined && approved !== '0' && approved !== '1') {
+ return res.status(400).json({ error: 'approved must be 0 or 1' });
+ }
+
+ let printers;
+ if (branchId) {
  const branch = await stmts.getBranchById.get(branchId);
  if (!branch) return res.status(404).json({ error: `Branch '${branchId}' not found` });
- const printers = await stmts.listPrintersByBranch.all(branchId);
+ printers = await stmts.listPrintersByBranch.all(branchId);
+ } else {
+ printers = await stmts.listAllPrintersWithBranch.all();
+ }
+
+ if (status !== undefined) printers = printers.filter((p) => p.status === status);
+ if (approved !== undefined) printers = printers.filter((p) => p.approved === Number(approved));
+
  res.json({ printers });
  } catch (e) { next(e); }
 });
@@ -82,7 +100,7 @@ router.post(
  }
 );
 
-const VALID_STATUSES = new Set(['online', 'out_of_paper', 'paper_jam', 'offline', 'unknown']);
+const VALID_STATUSES = new Set(['online', 'out_of_paper', 'paper_jam', 'offline', 'unknown', 'low_toner', 'no_toner']);
 
 /**
  * POST /api/printers/heartbeat (Agent token) - cập nhật trạng thái máy in từ agent
@@ -114,10 +132,10 @@ router.post('/heartbeat', verifyAgent, async (req, res, next) => {
  updated += result.rowCount;
  const oldStatus = before ? before.status : null;
  if (oldStatus !== status) {
- if (status === 'out_of_paper' || status === 'paper_jam') {
+ if (status === 'out_of_paper' || status === 'paper_jam' || status === 'low_toner' || status === 'no_toner') {
  // Máy in gặp sự cố → bắn alert lỗi, fire-and-forget
  alertService.emit({ clientId: req.agent.clientId, branchId: req.agent.branchId, printerId: before && before.id, alertType: 'printer.' + status, status }).catch(() => {});
- } else if (status === 'online' && (oldStatus === 'offline' || oldStatus === 'out_of_paper' || oldStatus === 'paper_jam')) {
+ } else if (status === 'online' && (oldStatus === 'offline' || oldStatus === 'out_of_paper' || oldStatus === 'paper_jam' || oldStatus === 'low_toner' || oldStatus === 'no_toner')) {
  // Máy in phục hồi → bắn alert recovery
  alertService.emit({ clientId: req.agent.clientId, branchId: req.agent.branchId, printerId: before && before.id, alertType: 'printer.online', status: 'online' }).catch(() => {});
  }

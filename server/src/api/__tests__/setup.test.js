@@ -8,6 +8,7 @@ jest.mock('../../db', () => ({
  stmts: {
  insertBranch: { run: jest.fn() },
  getBranchByClientAndName: { get: jest.fn() },
+ updateBranchToken: { run: jest.fn() },
  },
 }));
 
@@ -123,19 +124,45 @@ describe('POST /api/setup/register-branch', () => {
  expect(res.status).toBe(201);
  });
 
- test('duplicate branch_name (same client): 409', async () => {
+ test('re-register same name, same client: 200, rotates token, same branch_id', async () => {
  stmts.insertBranch.run.mockRejectedValue({ code: '23505' });
  stmts.getBranchByClientAndName.get.mockResolvedValue({
  id: 'br_existing', name: 'Chi nhánh Q1', client_id: 'cli_abc123',
  });
+ stmts.updateBranchToken.run.mockResolvedValue({ rowCount: 1 });
 
  const res = await request(app)
  .post('/api/setup/register-branch')
  .send(VALID_BODY)
  .set('Content-Type', 'application/json');
 
+ expect(res.status).toBe(200);
+ expect(res.body.branch_id).toBe('br_existing');
+ expect(res.body.agent_token).toMatch(/^[a-f0-9]{64}$/);
+ expect(res.body.topic_prefix).toBe('company/printer');
+ expect(stmts.updateBranchToken.run).toHaveBeenCalledWith(
+ expect.objectContaining({ id: 'br_existing', agent_token_hash: expect.stringMatching(/^[a-f0-9]{64}$/) })
+ );
+ // New token must hash to what was persisted (old token now invalid since hash overwritten)
+ const crypto = require('crypto');
+ const persistedHash = stmts.updateBranchToken.run.mock.calls[0][0].agent_token_hash;
+ const expectedHash = crypto.createHash('sha256').update(res.body.agent_token).digest('hex');
+ expect(persistedHash).toBe(expectedHash);
+ });
+
+ test('re-register same name, DIFFERENT client: still 409', async () => {
+ stmts.insertBranch.run.mockRejectedValue({ code: '23505' });
+ stmts.getBranchByClientAndName.get.mockResolvedValue({
+ id: 'br_existing', name: 'Chi nhánh Q1', client_id: 'cli_other_client',
+ });
+
+ const res = await request(app)
+ .post('/api/setup/register-branch')
+ .send(VALID_BODY) // VALID_BODY.client_id is 'cli_abc123', different from existing.client_id
+ .set('Content-Type', 'application/json');
+
  expect(res.status).toBe(409);
  expect(res.body.error).toMatch(/already exists for this client/);
- expect(res.body.branch_id).toBe('br_existing');
+ expect(stmts.updateBranchToken.run).not.toHaveBeenCalled();
  });
 });

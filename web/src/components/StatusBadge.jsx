@@ -10,6 +10,8 @@ const MAP = {
   online:       styles.online,
   out_of_paper: styles.outOfPaper,
   paper_jam:    styles.paperJam,
+  low_toner:    styles.lowToner,
+  no_toner:     styles.noToner,
   offline:      styles.offline,
   unknown:      styles.unknown,
   // Client (tenant) active flag — tái dùng màu online/offline
@@ -21,6 +23,8 @@ const LABEL = {
   online:       'Online',
   out_of_paper: 'Hết giấy',
   paper_jam:    'Kẹt giấy',
+  low_toner:    'Sắp hết mực',
+  no_toner:     'Hết mực',
   offline:      'Offline',
   unknown:      'Không rõ',
   active:       'Hoạt động',

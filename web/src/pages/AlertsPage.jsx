@@ -20,6 +20,8 @@ const ALERT_LABELS = {
   'printer.online': 'Máy in phục hồi',
   'printer.out_of_paper': 'Hết giấy',
   'printer.paper_jam': 'Kẹt giấy',
+  'printer.low_toner': 'Sắp hết mực',
+  'printer.no_toner': 'Hết mực',
 };
 
 // Loại alert "phục hồi" → màu xanh; còn lại → màu đỏ/cam

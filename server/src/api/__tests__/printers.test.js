@@ -21,10 +21,12 @@ const mockGetPrinterById = jest.fn();
 const mockListPrintersByBranch = jest.fn();
 const mockDbQuery = jest.fn();
 const mockGetPrinterByBranchAndName = jest.fn();
+const mockListAllPrintersWithBranch = jest.fn();
 
 jest.mock('../../db', () => ({
  stmts: {
  listPrintersByBranch: { all: mockListPrintersByBranch },
+ listAllPrintersWithBranch: { all: mockListAllPrintersWithBranch },
  getBranchById: { get: jest.fn() },
  insertPrinter: { run: jest.fn() },
  getPrinterById: { get: mockGetPrinterById },
@@ -84,6 +86,38 @@ describe('POST /api/printers/heartbeat', () => {
  expect(mockRunFn).toHaveBeenCalledTimes(2);
  expect(mockRunFn).toHaveBeenCalledWith(expect.objectContaining({
  status: 'online', branch_id: 'br_001', name: 'HP-001',
+ }));
+ });
+
+ test('agent hợp lệ → status low_toner được lưu đúng', async () => {
+ mockRunFn.mockResolvedValueOnce({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'HP-001', status: 'low_toner' }] });
+
+ expect(res.status).toBe(200);
+ expect(res.body).toEqual({ ok: true, updated: 1, discovered: 0 });
+ expect(mockRunFn).toHaveBeenCalledWith(expect.objectContaining({
+ status: 'low_toner', branch_id: 'br_001', name: 'HP-001',
+ }));
+ });
+
+ test('agent hợp lệ → status no_toner được lưu đúng', async () => {
+ mockRunFn.mockResolvedValueOnce({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'HP-001', status: 'no_toner' }] });
+
+ expect(res.status).toBe(200);
+ expect(res.body).toEqual({ ok: true, updated: 1, discovered: 0 });
+ expect(mockRunFn).toHaveBeenCalledWith(expect.objectContaining({
+ status: 'no_toner', branch_id: 'br_001', name: 'HP-001',
  }));
  });
 
@@ -156,6 +190,64 @@ describe('POST /api/printers/heartbeat - máy đã tồn tại', () => {
  expect(res.status).toBe(200);
  expect(res.body).toEqual({ ok: true, updated: 1, discovered: 0 });
  expect(mockInsertDiscoveredPrinter).not.toHaveBeenCalled();
+ });
+});
+
+describe('GET /api/printers', () => {
+ test('không truyền branch_id → gọi listAllPrintersWithBranch, trả printers kèm branch info', async () => {
+ const rows = [
+ { id: 'prn_001', branch_id: 'br_001', name: 'HP-001', status: 'online', approved: 1, branch_name: 'Branch A', branch_status: 'online' },
+ { id: 'prn_002', branch_id: 'br_002', name: 'HP-002', status: 'paper_jam', approved: 1, branch_name: 'Branch B', branch_status: 'online' },
+ ];
+ mockListAllPrintersWithBranch.mockResolvedValue(rows);
+
+ const res = await request(app).get('/api/printers');
+
+ expect(res.status).toBe(200);
+ expect(mockListAllPrintersWithBranch).toHaveBeenCalled();
+ expect(res.body).toEqual({ printers: rows });
+ });
+
+ test('không branch_id + ?status=paper_jam → chỉ trả printer khớp status', async () => {
+ const rows = [
+ { id: 'prn_001', branch_id: 'br_001', name: 'HP-001', status: 'online', approved: 1, branch_name: 'Branch A', branch_status: 'online' },
+ { id: 'prn_002', branch_id: 'br_002', name: 'HP-002', status: 'paper_jam', approved: 1, branch_name: 'Branch B', branch_status: 'online' },
+ ];
+ mockListAllPrintersWithBranch.mockResolvedValue(rows);
+
+ const res = await request(app).get('/api/printers?status=paper_jam');
+
+ expect(res.status).toBe(200);
+ expect(res.body.printers).toEqual([rows[1]]);
+ });
+
+ test('không branch_id + ?approved=1 → chỉ trả printer approved:1', async () => {
+ const rows = [
+ { id: 'prn_001', branch_id: 'br_001', name: 'HP-001', status: 'online', approved: 1, branch_name: 'Branch A', branch_status: 'online' },
+ { id: 'prn_002', branch_id: 'br_002', name: 'HP-002', status: 'online', approved: 0, branch_name: 'Branch B', branch_status: 'online' },
+ ];
+ mockListAllPrintersWithBranch.mockResolvedValue(rows);
+
+ const res = await request(app).get('/api/printers?approved=1');
+
+ expect(res.status).toBe(200);
+ expect(res.body.printers).toEqual([rows[0]]);
+ });
+
+ test('không branch_id + ?status=bogus (ngoài enum) → 400', async () => {
+ const res = await request(app).get('/api/printers?status=bogus');
+
+ expect(res.status).toBe(400);
+ expect(res.body.error).toBe('Invalid status: bogus');
+ expect(mockListAllPrintersWithBranch).not.toHaveBeenCalled();
+ });
+
+ test('không branch_id + ?approved=2 (không hợp lệ) → 400', async () => {
+ const res = await request(app).get('/api/printers?approved=2');
+
+ expect(res.status).toBe(400);
+ expect(res.body.error).toBe('approved must be 0 or 1');
+ expect(mockListAllPrintersWithBranch).not.toHaveBeenCalled();
  });
 });
 
@@ -293,6 +385,86 @@ describe('POST /api/printers/heartbeat – alert wiring (TASK 7)', () => {
 
  test('printer out_of_paper → online (recovery từ lỗi giấy): emit printer.online', async () => {
  mockGetPrinterByBranchAndName.mockResolvedValue({ id: 'prn_002', status: 'out_of_paper' });
+ mockRunFn.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'HP-002', status: 'online' }] });
+
+ expect(res.status).toBe(200);
+ expect(mockAlertEmit).toHaveBeenCalledWith(expect.objectContaining({
+ alertType: 'printer.online',
+ printerId: 'prn_002',
+ }));
+ });
+
+ test('printer online → low_toner: emit gọi 1 lần với alertType printer.low_toner', async () => {
+ mockGetPrinterByBranchAndName.mockResolvedValue({ id: 'prn_001', status: 'online' });
+ mockRunFn.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'HP-001', status: 'low_toner' }] });
+
+ expect(res.status).toBe(200);
+ expect(mockAlertEmit).toHaveBeenCalledTimes(1);
+ expect(mockAlertEmit).toHaveBeenCalledWith({
+ clientId: 'cl_001',
+ branchId: 'br_001',
+ printerId: 'prn_001',
+ alertType: 'printer.low_toner',
+ status: 'low_toner',
+ });
+ });
+
+ test('printer online → no_toner: emit gọi 1 lần với alertType printer.no_toner', async () => {
+ mockGetPrinterByBranchAndName.mockResolvedValue({ id: 'prn_001', status: 'online' });
+ mockRunFn.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'HP-001', status: 'no_toner' }] });
+
+ expect(res.status).toBe(200);
+ expect(mockAlertEmit).toHaveBeenCalledTimes(1);
+ expect(mockAlertEmit).toHaveBeenCalledWith({
+ clientId: 'cl_001',
+ branchId: 'br_001',
+ printerId: 'prn_001',
+ alertType: 'printer.no_toner',
+ status: 'no_toner',
+ });
+ });
+
+ test('printer low_toner → online (recovery từ thiếu mực): emit printer.online', async () => {
+ mockGetPrinterByBranchAndName.mockResolvedValue({ id: 'prn_001', status: 'low_toner' });
+ mockRunFn.mockResolvedValue({ rowCount: 1 });
+
+ const res = await request(app)
+ .post('/api/printers/heartbeat')
+ .set('X-Agent-Token', 'token')
+ .set('X-Branch-Id', 'br_001')
+ .send({ printers: [{ name: 'HP-001', status: 'online' }] });
+
+ expect(res.status).toBe(200);
+ expect(mockAlertEmit).toHaveBeenCalledTimes(1);
+ expect(mockAlertEmit).toHaveBeenCalledWith({
+ clientId: 'cl_001',
+ branchId: 'br_001',
+ printerId: 'prn_001',
+ alertType: 'printer.online',
+ status: 'online',
+ });
+ });
+
+ test('printer no_toner → online (recovery từ hết mực): emit printer.online', async () => {
+ mockGetPrinterByBranchAndName.mockResolvedValue({ id: 'prn_002', status: 'no_toner' });
  mockRunFn.mockResolvedValue({ rowCount: 1 });
 
  const res = await request(app)
