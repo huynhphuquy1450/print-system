@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Eye, Copy } from 'lucide-react';
-import { listBranches, listJobs, retryJob, ApiError } from '../api/client.js';
+import { listJobs, retryJob, ApiError } from '../api/client.js';
+import { getBranches } from '../api/branchesCache.js';
 import { useToast } from '../ui/ToastContext.jsx';
+import { useUrlState } from '../hooks/useUrlState.js';
 import DataTable from '../components/DataTable.jsx';
 import Pagination from '../components/Pagination.jsx';
 import Modal from '../components/Modal.jsx';
@@ -9,24 +11,32 @@ import Field from '../components/Field.jsx';
 import FilterBar from '../components/FilterBar.jsx';
 import StatusBadge from '../components/StatusBadge.jsx';
 import EmptyState from '../components/EmptyState.jsx';
+import ErrorState from '../components/ErrorState.jsx';
 import Spinner from '../components/Spinner.jsx';
 import styles from './JobsPage.module.css';
 
 const EMPTY_FILTER = { branch_id: '', status: '', from: '', to: '' };
+const DEFAULT_LIMIT = 50;
 
 export default function JobsPage() {
   const { toast } = useToast();
+  const { get, setMany } = useUrlState();
 
-  // Chi nhánh — tải một lần khi mount
+  // Chi nhánh — tải một lần khi mount (qua cache dùng chung)
   const [branches, setBranches] = useState([]);
 
-  // filterDraft: giá trị đang nhập trên form (chưa áp dụng)
-  // filter: bộ lọc đang thực sự được dùng để query
-  const [filterDraft, setFilterDraft] = useState(EMPTY_FILTER);
-  const [filter, setFilter] = useState(EMPTY_FILTER);
+  // Bộ lọc + phân trang đang áp dụng — đọc trực tiếp từ URL để refresh/back/forward khôi phục đúng view
+  const filter = {
+    branch_id: get('branch_id', ''),
+    status: get('status', ''),
+    from: get('from', ''),
+    to: get('to', ''),
+  };
+  const limit = Number(get('limit', DEFAULT_LIMIT));
+  const offset = Number(get('offset', 0));
 
-  // Phân trang
-  const [pagination, setPagination] = useState({ limit: 50, offset: 0 });
+  // filterDraft: giá trị đang nhập trên form (chưa áp dụng); đồng bộ lại khi URL đổi (mount, back/forward)
+  const [filterDraft, setFilterDraft] = useState(filter);
 
   // Dữ liệu
   const [jobs, setJobs] = useState([]);
@@ -45,17 +55,27 @@ export default function JobsPage() {
 
   // Tải danh sách chi nhánh một lần khi mount; bỏ qua lỗi
   useEffect(() => {
-    listBranches()
-      .then(({ branches: list }) => setBranches(list || []))
+    getBranches()
+      .then((list) => setBranches(list || []))
       .catch(() => {});
   }, []);
 
-  // Tải danh sách jobs; chạy lại khi filter hoặc pagination thay đổi
+  // Đồng bộ filterDraft theo URL — phủ trường hợp back/forward hoặc F5
+  useEffect(() => {
+    setFilterDraft({
+      branch_id: filter.branch_id,
+      status: filter.status,
+      from: filter.from,
+      to: filter.to,
+    });
+  }, [filter.branch_id, filter.status, filter.from, filter.to]);
+
+  // Tải danh sách jobs; chạy lại khi giá trị filter/pagination trên URL thay đổi
   const fetchJobs = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const params = { limit: pagination.limit, offset: pagination.offset };
+      const params = { limit, offset };
       if (filter.branch_id) params.branch_id = filter.branch_id;
       if (filter.status) params.status = filter.status;
       if (filter.from) params.from = new Date(filter.from).getTime();
@@ -70,7 +90,7 @@ export default function JobsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter, pagination, toast]);
+  }, [filter.branch_id, filter.status, filter.from, filter.to, limit, offset, toast]);
 
   useEffect(() => {
     fetchJobs();
@@ -78,15 +98,13 @@ export default function JobsPage() {
 
   // Áp dụng bộ lọc và reset về trang đầu
   function handleFilterSubmit() {
-    setFilter({ ...filterDraft });
-    setPagination({ limit: 50, offset: 0 });
+    setMany({ ...filterDraft, offset: '' });
   }
 
   // Xóa bộ lọc và reset trang
   function handleFilterReset() {
     setFilterDraft({ ...EMPTY_FILTER });
-    setFilter({ ...EMPTY_FILTER });
-    setPagination({ limit: 50, offset: 0 });
+    setMany({ ...EMPTY_FILTER, offset: '' });
   }
 
   // Cập nhật một trường trong filterDraft
@@ -121,15 +139,11 @@ export default function JobsPage() {
       header: 'ID',
       render: (val) => (
         <span className={styles.idCell}>
-          <span
-            style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--font-size-sm)' }}
-            title={val}
-          >
+          <span className={styles.idCode} title={val}>
             {val.slice(0, 8)}…
           </span>
           <button
-            className="btn btn-ghost"
-            style={{ padding: '2px 4px', fontSize: '12px', lineHeight: 1 }}
+            className={`btn btn-ghost ${styles.copyBtn}`}
             title="Copy ID"
             onClick={() =>
               navigator.clipboard.writeText(val).then(() => toast('Đã copy ID', 'success'))
@@ -164,21 +178,16 @@ export default function JobsPage() {
       header: 'Hành động',
       render: (_, row) => (
         <span className={styles.actionCell}>
-          <button
-            className="btn btn-ghost"
-            style={{ fontSize: '12px', padding: '3px 8px' }}
-            onClick={() => setDetailJob(row)}
-          >
+          <button className="btn btn-ghost btn-sm" onClick={() => setDetailJob(row)}>
             <Eye size={12} /> Chi tiết
           </button>
           <button
-            className="btn btn-accent"
-            style={{ fontSize: '12px', padding: '3px 8px' }}
+            className="btn btn-accent btn-sm"
             disabled={row.status !== 'failed' || retryingId === row.id}
             title={row.status !== 'failed' ? 'Chỉ retry được job ở trạng thái failed' : undefined}
             onClick={() => handleRetry(row)}
           >
-            {retryingId === row.id ? <Spinner size={12} /> : <RefreshCw size={12} />}
+            {retryingId === row.id ? <Spinner size="sm" /> : <RefreshCw size={12} />}
             Retry
           </button>
         </span>
@@ -251,28 +260,30 @@ export default function JobsPage() {
         </div>
       )}
 
-      {/* Bảng danh sách */}
-      <DataTable
-        columns={columns}
-        rows={jobs}
-        rowKey="id"
-        empty={
-          <EmptyState
-            title="Không có job nào"
-            message="Thử thay đổi bộ lọc hoặc tạo job mới"
-          />
-        }
-      />
+      {/* Lỗi tải danh sách — thay cho bảng khi chưa có dữ liệu */}
+      {error && !loading && jobs.length === 0 ? (
+        <ErrorState message={error} onRetry={fetchJobs} />
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={jobs}
+          rowKey="id"
+          empty={
+            <EmptyState
+              title="Không có job nào"
+              message="Thử thay đổi bộ lọc hoặc tạo job mới"
+            />
+          }
+        />
+      )}
 
       {/* Phân trang */}
       {total > 0 && (
         <Pagination
-          limit={pagination.limit}
-          offset={pagination.offset}
+          limit={limit}
+          offset={offset}
           total={total}
-          onChange={(off, lim) =>
-            setPagination({ offset: off, limit: lim ?? pagination.limit })
-          }
+          onChange={(off, lim) => setMany({ offset: off, limit: lim ?? limit })}
         />
       )}
 
@@ -282,9 +293,7 @@ export default function JobsPage() {
           <div className={styles.detail}>
             <div className={styles.detailRow}>
               <span className={styles.detailLabel}>ID</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
-                {detailJob.id}
-              </span>
+              <span className={styles.detailId}>{detailJob.id}</span>
             </div>
             <div className={styles.detailRow}>
               <span className={styles.detailLabel}>Chi nhánh</span>
@@ -323,11 +332,6 @@ export default function JobsPage() {
           </div>
         )}
       </Modal>
-
-      {/* Hiển thị thông báo lỗi khi fetch thất bại */}
-      {error && !loading && jobs.length === 0 && (
-        <p style={{ color: 'var(--color-danger, red)', marginTop: 'var(--space-2)' }}>{error}</p>
-      )}
     </div>
   );
 }

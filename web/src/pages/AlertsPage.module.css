@@ -1,32 +1,7 @@
-/* Layout chính của trang */
-.page {
-  padding: var(--space-4) var(--space-5);
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-/* Hàng tiêu đề: tên trang bên trái, tổng số bên phải */
-.header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: var(--space-4);
-}
-
-.header h1 {
-  margin: 0;
-}
-
+/* Tổng số cảnh báo, cạnh tiêu đề trang */
 .total {
   font-size: 0.875rem;
   color: var(--color-muted-fg);
-}
-
-/* Spinner căn giữa khi đang tải lần đầu */
-.spinnerWrap {
-  display: flex;
-  justify-content: center;
-  padding: var(--space-5) 0;
 }
 
 /* Badge loại cảnh báo: chấm màu + nhãn */
@@ -41,4 +16,14 @@
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+/* Cảnh báo "phục hồi" (branch/printer online) → chấm xanh */
+.typeDotSuccess {
+  background: var(--color-success);
+}
+
+/* Cảnh báo sự cố (offline, kẹt giấy, hết mực/giấy...) → chấm đỏ */
+.typeDotDanger {
+  background: var(--color-destructive);
 }

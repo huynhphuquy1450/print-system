@@ -12,14 +12,33 @@
 .card {
   width: 100%;
   max-width: 400px;
+  text-align: center;
+}
+
+/* Icon logo — vòng tròn nền primary nhạt phía trên tiêu đề */
+.logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto var(--space-4);
+  border-radius: 50%;
+  background: var(--color-border);
+  color: var(--color-primary);
 }
 
 /* Tiêu đề */
 .title {
-  font-size: 1.125rem;
+  font-size: 1.25rem;
   font-weight: 600;
   color: var(--color-fg);
-  text-align: center;
+}
+
+/* Phụ đề dưới tiêu đề */
+.subtitle {
+  font-size: var(--font-size-sm);
+  color: var(--color-muted-fg);
   margin-bottom: var(--space-5);
 }
 
@@ -28,20 +47,26 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  text-align: left;
+}
+
+/* Chiều cao tối thiểu 44px cho ô nhập — thuận tiện thao tác chạm */
+.form input {
+  min-height: 44px;
 }
 
 /* Banner lỗi inline */
 .error {
   font-size: var(--font-size-sm);
-  color: var(--color-destructive);
-  background: rgba(220, 38, 38, 0.06);
-  border: 1px solid rgba(220, 38, 38, 0.2);
+  color: #991b1b;
+  background: #fee2e2;
   border-radius: var(--radius);
   padding: var(--space-2) var(--space-3);
 }
 
-/* Nút submit trải rộng toàn bộ chiều ngang */
+/* Nút submit trải rộng toàn bộ chiều ngang, đủ cao để thao tác chạm */
 .submit {
   width: 100%;
   justify-content: center;
+  min-height: 44px;
 }
