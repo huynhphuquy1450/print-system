@@ -26,7 +26,7 @@ Hệ thống in PDF hợp đồng từ xa cho công ty có trụ sở chính + 3
          │ HTTPS API + JWT
          ▼
 ┌─────────────────────────────────────┐
-│  VPS Ubuntu 160.250.133.192         │
+│  VPS Ubuntu <SERVER_IP>              │
 │  ┌────────────────────────────────┐ │
 │  │ Print Service :3000 (Node.js)  │ │
 │  │ - Express + JWT                │ │
@@ -64,44 +64,38 @@ Hệ thống in PDF hợp đồng từ xa cho công ty có trụ sở chính + 3
 
 ---
 
-## 2. TRẠNG THÁI HIỆN TẠI
+## 2. KIỂM TRA SAU KHI DEPLOY
 
-### 2.1. Server (đã chạy production)
+Sau khi setup xong (§6/§7), dùng checklist này để xác nhận hệ thống chạy đúng — không có số liệu
+cố định, tự chạy lệnh và đối chiếu kỳ vọng ở cột phải.
 
-| Component | Status | Detail |
+### 2.1. Server
+
+| Component | Lệnh kiểm tra | Kỳ vọng |
 |---|---|---|
-| Print Service Node.js | ✅ Online | PID 3267171, uptime 12h+, memory 90MB, restart count 3 |
-| Mosquitto broker | ✅ Active | TLS + ACL, 4 MQTT user, 5 branch rows |
-| PM2 + systemd | ✅ Enabled | Auto-start on VPS reboot |
-| UFW firewall | ✅ Active | Allow 22, 3000, 8883 |
-| SQLite DB | ✅ OK | 28 jobs (22 printed + 6 failed), 5 branches, 1 client |
-| Health endpoint | ✅ OK | `curl /health` → `{status:"ok",mqtt:"connected",db:"ok"}` |
+| Print Service Node.js | `pm2 status` | Process `online`, restart count không tăng liên tục |
+| Mosquitto broker | `systemctl status mosquitto` | `active (running)`, log không có lỗi TLS/ACL |
+| PM2 + systemd | `pm2 startup` đã chạy + `pm2 save` | Service tự khởi động lại sau reboot VPS |
+| UFW firewall | `sudo ufw status` | Allow 22, 3000 (và 8883 nếu Mosquitto cùng host) |
+| Database | `curl -s http://localhost:3000/health \| jq` | `{status:"ok", db:"ok"}` |
+| Health endpoint | `curl -s http://localhost:3000/health` | `{status:"ok",mqtt:"connected",db:"ok"}` |
 
-### 2.2. Client (đã build & chạy trên máy Windows)
+### 2.2. Client (agent trên máy Windows)
 
-| Component | Status | Detail |
+| Component | Lệnh kiểm tra | Kỳ vọng |
 |---|---|---|
-| Agent br_001 Node.js | ✅ Running | NSSM service "PrintAgent-br001" |
-| SumatraPDF 3.6.1 | ✅ Installed | `C:\print-system\tools\SumatraPDF.exe` |
-| CA cert | ✅ Installed | `C:\print-system\ca.crt` (self-signed) |
-| Auto-restart | ✅ Yes | NSSM restart on crash, Auto-start on Windows boot |
-| Test results | ✅ 5/5 PASS | In ra máy in Brother HL-L2360D thật |
-
-### 2.3. Code statistics
-
-```
-src/       1,656 dòng JS (17 file)
-scripts/     293 dòng JS/sh (5 file)
-docs/        ~600 dòng markdown (6 file)
-Tổng repo:   73 file (không tính node_modules, DB)
-```
+| Agent Node.js | `Get-Service PrintAgent-<branch_id>` | `Status = Running` |
+| SumatraPDF | kiểm tra `C:\print-system\tools\SumatraPDF.exe` tồn tại | File có mặt, đúng version đã cài |
+| Root CA | `agent/CA_INSTALL.md` mục Verify | Kết nối MQTTS không cảnh báo cert |
+| Auto-restart | NSSM restart on crash, auto-start on Windows boot | Restart service → service tự khởi động lại |
+| Test job | in 1 job test qua ERP/API | SumatraPDF in ra giấy, job chuyển `status: printed` |
 
 ---
 
 ## 3. CẤU TRÚC REPO
 
 ```
-/opt/print-service/                  # (sẽ chuyển sang monorepo Git)
+<INSTALL_DIR>/                       # vd /opt/print-service — nơi bạn clone/deploy repo trên VPS
 ├── src/                             # Server source code
 │   ├── index.js                     # Entry point (HTTP + MQTT + cron + signals)
 │   ├── app.js                       # Express setup + routes
@@ -430,7 +424,7 @@ npm install
 # Giải nén vào C:\print-system\tools\SumatraPDF.exe
 
 # 4. Copy CA cert từ VPS (hoặc dev server)
-# scp admin@<server>:/path/to/server.crt C:\print-system\ca.crt
+# scp <user>@<server>:/path/to/server.crt C:\print-system\ca.crt
 
 # 5. Tạo .env (KHÔNG copy từ production)
 # Bước 5a: Tạo branch mới qua API (dev server)
@@ -486,14 +480,14 @@ mosquitto_sub -h 127.0.0.1 -p 8883 -u printservice -P "$MQTT_PASS" \
 
 ```bash
 # SSH vào VPS
-ssh admin@160.250.133.192
+ssh <user>@<SERVER_IP>
 
 # Cài deps
 sudo apt update && sudo apt install -y mosquitto mosquitto-clients openssl ufw curl git
 
 # Setup Mosquitto (xem §5.3)
-sudo cp /opt/print-service/certs/* /etc/mosquitto/certs/
-sudo cp /opt/print-service/scripts/setup/* /etc/mosquitto/  # nếu có
+sudo cp <INSTALL_DIR>/certs/* /etc/mosquitto/certs/
+sudo cp <INSTALL_DIR>/scripts/setup/* /etc/mosquitto/  # nếu có
 sudo systemctl restart mosquitto
 
 # Mở firewall
@@ -502,8 +496,8 @@ sudo ufw allow 3000/tcp
 sudo ufw allow 8883/tcp
 sudo ufw --force enable
 
-# Setup PM2 startup
-pm2 startup systemd -u admin --hp /home/admin
+# Setup PM2 startup (thay <user> bằng user chạy deploy, vd deploy/print-service)
+pm2 startup systemd -u <user> --hp /home/<user>
 pm2 save
 
 # Verify
@@ -537,11 +531,11 @@ sudo -u postgres createuser printservice -P # nhập password
 sudo -u postgres createdb printservice -O printservice
 
 # 2. Set DATABASE_URL trong .env (chỉnh đúng user/pass/host)
-echo "DATABASE_URL=postgres://printservice:YOURPASS@localhost:5432/printservice" >> /opt/print-service/.env
+echo "DATABASE_URL=postgres://printservice:YOURPASS@localhost:5432/printservice" >> <INSTALL_DIR>/.env
 
 # 3. (Optional) Migrate dữ liệu cũ từ SQLite
 pm2 stop print-service
-cd /opt/print-service
+cd <INSTALL_DIR>
 DB_PATH=./data/jobs.db DATABASE_URL=$DATABASE_URL node server/scripts/migrate-sqlite-to-pg.js
 # Kiểm tra row counts khớp với bảng gốc:
 # sqlite3 data/jobs.db 'SELECT COUNT(*) FROM jobs;'  → expected_jobs
@@ -571,12 +565,12 @@ trong PATH trên VPS (`apt install postgresql-client`).
 
 | Loại | Mức độ nhạy | Lưu trữ |
 |---|---|---|
-| `JWT_SECRET` | **CRITICAL** | Bitwarden team vault (1 chỗ duy nhất) |
-| `AGENT_TOKEN_SECRET` | **CRITICAL** | Bitwarden team vault |
-| `client_secret` (HQ) | **HIGH** | Bitwarden team vault, share với ERP team |
-| `agent_token` (mỗi branch) | **HIGH** | Bitwarden share riêng cho mỗi chi nhánh |
-| `MQTT_PASS` (4 user) | **MEDIUM** | Trong `.env` production + dev docs |
-| TLS cert | **MEDIUM** | Repo (public cert) + Bitwarden (private key) |
+| `JWT_SECRET` | **CRITICAL** | Secret manager của team (1 chỗ duy nhất) |
+| `AGENT_TOKEN_SECRET` | **CRITICAL** | Secret manager của team |
+| `client_secret` (HQ) | **HIGH** | Secret manager của team, share với ERP team |
+| `agent_token` (mỗi branch) | **HIGH** | Share riêng cho từng chi nhánh qua secret manager |
+| `MQTT_PASS` (mỗi user) | **MEDIUM** | Trong `.env` production + dev docs |
+| TLS cert | **MEDIUM** | Repo (public cert) + secret manager (private key) |
 
 ### 8.2. Quy tắc
 
@@ -584,28 +578,31 @@ trong PATH trên VPS (`apt install postgresql-client`).
 2. **KHÔNG BAO GIỜ** paste secret plaintext vào file `.md` trong repo
 3. **KHÔNG BAO GIỜ** share secret qua chat (kể cả internal)
 4. Mỗi dev có **secret riêng** cho local dev (gen qua `scripts/setup-dev.sh`)
-5. Production secret chỉ trong **Bitwarden team vault** + `.env` trên VPS
+5. Production secret chỉ trong **secret manager của team** (Bitwarden/1Password/Vault... — chọn công cụ phù hợp) + `.env` trên VPS
 6. **Rotate định kỳ** (khuyến nghị 90 ngày): client_secret, agent_token, MQTT_PASS
-7. Khi dev nghỉ việc → **rotate TẤT CẢ** secret + revoke quyền Bitwarden
+7. Khi dev nghỉ việc → **rotate TẤT CẢ** secret + revoke quyền truy cập secret manager
 
-### 8.3. Setup Bitwarden team (TODO — a tạo)
+### 8.3. Setup secret manager cho team
 
-1. Tạo organization "Print System Team" trên https://vault.bitwarden.com
-2. Tạo collections: `Production Secrets`, `Dev Secrets`, `Agent Tokens`
-3. Invite team dev với quyền read-only (trừ a = admin)
-4. Lưu TẤT CẢ secret vào đây
-5. Chia sẻ `Agent Tokens/br_001` cho agent owner (1 người cụ thể)
+Chưa có công cụ nào bắt buộc — chọn secret manager phù hợp với team bạn (Bitwarden, 1Password,
+HashiCorp Vault...). Gợi ý cấu trúc chung:
+
+1. Tạo organization/vault riêng cho project.
+2. Tạo các nhóm/collection: `Production Secrets`, `Dev Secrets`, `Agent Tokens`.
+3. Invite team dev với quyền read-only; chỉ người quản trị hệ thống có quyền ghi.
+4. Lưu TẤT CẢ secret vào đây, không lưu rải rác trong chat/note cá nhân.
+5. Chia sẻ secret của từng chi nhánh (`Agent Tokens/<branch_id>`) cho đúng người phụ trách chi nhánh đó.
 
 ### 8.4. Rotate secret
 
 ```bash
 # Trên server production, SSH vào VPS
-ssh admin@160.250.133.192
+ssh <user>@<SERVER_IP>
 
 # 1. Rotate JWT_SECRET (khuyến nghị 90 ngày)
 NEW_JWT=$(node -e "console.log(require('crypto').randomBytes(48).toString('base64'))")
-sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$NEW_JWT|" /opt/print-service/.env
-# Lưu $NEW_JWT vào Bitwarden
+sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$NEW_JWT|" <INSTALL_DIR>/.env
+# Lưu $NEW_JWT vào secret manager của team
 
 # 2. Rotate agent_token cho 1 branch (qua API)
 JWT=$(curl -s -X POST http://localhost:3000/api/auth/login \
@@ -613,10 +610,10 @@ JWT=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -d '{"client_id":"...","client_secret":"..."}' | jq -r .token)
 NEW_TOKEN=$(curl -s -X POST http://localhost:3000/api/branches/br_001/regen-token \
   -H "Authorization: Bearer $JWT" | jq -r .agent_token)
-# Lưu $NEW_TOKEN vào Bitwarden → share với agent owner
+# Lưu $NEW_TOKEN vào secret manager → share với người phụ trách chi nhánh
 
 # 3. Update agent .env (trên máy Windows)
-# Agent owner nhận token mới từ Bitwarden, update file .env, restart service:
+# Người phụ trách chi nhánh nhận token mới từ secret manager, update file .env, restart service:
 #   sc stop PrintAgent-br001 && sc start PrintAgent-br001
 
 # 4. Verify
@@ -641,13 +638,13 @@ CI tự động:
    - Integration test: spawn server local + agent local + Mosquitto local
      - Gửi job qua API → verify in (mock printer)
    ↓ pass
-Reviewer (a) review code
+Reviewer (maintainer) review code
    ↓ approved
 Merge vào main
    ↓
-A deploy thủ công lên VPS (chưa có auto-deploy)
+Người phụ trách deploy thủ công lên VPS (chưa có auto-deploy)
    ↓
-A verify trên production (smoke test)
+Verify trên production (smoke test)
 ```
 
 ### 9.2. Coding conventions
@@ -690,7 +687,7 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 |---|---|---|---|
 | 1 | ~~PDF base64 trong JSON → request lớn, tốn RAM~~ | ~~Memory peak ~50MB/job~~ | ✅ **Đã fix**: `POST /api/print-jobs` giờ nhận `multipart/form-data` với file `pdf` binary (multer memoryStorage, 50 MB cap, application/pdf filter). `express.json` giảm xuống 1 KB (chỉ đủ cho các endpoint metadata). Agent nhận metadata-only MQTT payload (`{job_id, printer, metadata, version: 2}`) và luôn tải PDF qua `GET /api/print-jobs/:id/file` — 1 code path duy nhất cho cả real-time lẫn reconnect. **BREAKING CHANGE** cho HQ client — xem §4.3 và commit body. |
 | 2 | ~~SQLite single-file → không scale > 100 jobs/phút~~ | ~~DB lock khi concurrent~~ | ✅ **Đã fix**: server đã chuyển sang PostgreSQL (`pg` driver, `pg-mem` cho in-process integration tests). Schema giữ nguyên (BIGINT epoch timestamps, SERIAL PK trên `cleanup_audit`, FK constraints preserved). Async/await trên toàn bộ service + API + middleware + cron. Connection pooling (Pool max=10). Transaction wrapper `db.transaction(fn)` thay cho `better-sqlite3` sync. Backup chuyển sang `pg_dump`. Migration one-shot: `server/scripts/migrate-sqlite-to-pg.js`. Xem §6 deployment + §11 notes. |
-| 3 | ~~Cert self-signed → client phải `--cafile` hoặc `rejectUnauthorized:false`~~ | ~~Dev friction~~ | ✅ **Đã fix**: dùng **Step-CA** (smallstep) làm internal PKI — chạy ngay trên print-service box, init 1 lần qua `scripts/setup-step-ca.sh`. Cấp cert cho cả Mosquitto (`/etc/mosquitto/certs/server.crt`) lẫn Express HTTPS (`/opt/print-service/certs/server.crt`). Cert 90-day validity, auto-renew cron mỗi ngày 03:00 (`scripts/renew-step-certs.sh`). Root CA (`root_ca.crt`, ~5KB) distribute cho pilot branches qua kênh an toàn — install vào Windows "Trusted Root Certification Authorities". Xem §10.4 rollout checklist. |
+| 3 | ~~Cert self-signed → client phải `--cafile` hoặc `rejectUnauthorized:false`~~ | ~~Dev friction~~ | ✅ **Đã fix (tuỳ chọn)**: dùng **Step-CA** (smallstep) làm internal PKI — chạy ngay trên print-service box, init 1 lần qua `scripts/setup-step-ca.sh`. Cấp cert cho cả Mosquitto (`/etc/mosquitto/certs/server.crt`) lẫn Express HTTPS (`<INSTALL_DIR>/certs/server.crt`). Cert 90-day validity, auto-renew cron mỗi ngày 03:00 (`scripts/renew-step-certs.sh`). Root CA (`root_ca.crt`, ~5KB) distribute cho pilot branches qua kênh an toàn — install vào Windows "Trusted Root Certification Authorities". Xem §10.4 rollout checklist. Mặc định deployment vẫn dùng cert self-signed đơn giản hơn (xem `agent/CA_INSTALL.md`) — Step-CA là nâng cấp tuỳ chọn khi cần rotate cert tự động. |
 | 4 | ~~Không có HTTPS cho API (chỉ HTTP)~~ | ~~Insecure trên internet~~ | ✅ **Đã fix**: Express app giờ bind cả HTTP (PORT=3000, cho HQ LAN) lẫn HTTPS (HTTPS_PORT=443, cho internet agents) trong cùng 1 process. Module `server/src/https-server.js` wrap `https.createServer` với cert hot-reload qua `fs.watch` (renewal không cần restart app). Opt-in qua `HTTPS_ENABLED=true` (default `false` ở dev/CI). Khi deploy production: chạy `setup-step-ca.sh` + `ufw-open-https.sh` + set `HTTPS_ENABLED=true` trong `.env`. Xem §4.4 cho chi tiết dual-listener. |
 | 5 | ~~Không có rate-limit per-client (chỉ per-IP login)~~ | ~~HQ spam được~~ | ✅ **Đã fix**: middleware `clientRateLimit` (`server/src/middleware/rate-limit-client.js`), key theo `req.client.id`, default `CLIENT_WRITE_RATE_PER_MIN=30` (env). Áp dụng cho `POST /api/print-jobs`. Nếu scale horizontal → đổi sang Redis store. |
 | 6 | ~~Không có audit log ai in cái gì~~ | ~~Đã có guidance cho HQ (xem §4.8)~~ | ✅ **Đã fix**: `POST /api/print-jobs` giờ **bắt buộc** `metadata.user_id` (string, không rỗng). Validate qua helper `requireMetadataUserId` (`server/src/middleware/validate.js`), gọi trong khối validate inline của `jobs.js`. Thiếu (hoặc không truyền `metadata`) → `400 { error: 'Validation failed', details: ['metadata.user_id is required'] }`. Test: `server/src/api/__tests__/jobs.test.js` (thiếu user_id → 400, có user_id → 201). **BREAKING CHANGE** cho HQ client cũ chưa gắn `user_id`. |
@@ -699,8 +696,8 @@ sqlite3 data/jobs.db "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 3"
 
 ### 10.2. Cần monitor thường trực
 
-- **Disk usage** `/opt/print-service/storage/` — cleanup cron đã lo nhưng check `df -h` mỗi tuần
-- **Log size** `/opt/print-service/logs/` — rotate qua winston-daily-rotate-file, kiểm tra `du -sh`
+- **Disk usage** `<INSTALL_DIR>/storage/` — cleanup cron đã lo nhưng check `df -h` mỗi tuần
+- **Log size** `<INSTALL_DIR>/logs/` — rotate qua winston-daily-rotate-file, kiểm tra `du -sh`
 - **MQTT connection** — health endpoint, log "MQTT disconnected"
 - **Job stuck** ở status `sent` > 5 phút — retry-stale cron sẽ lo, nhưng nếu retry_count >= 5 → mark failed
 - **PM2 status** — uptime, memory, restart count
@@ -764,11 +761,11 @@ SELECT job_id, file_path, reason, deleted_at, size_bytes
 apt install -y step-cli step-ca      # Debian/Ubuntu
 
 # 2. Init PKI + provision certs + install renewal cron
-cd /opt/print-system-github
+cd <INSTALL_DIR>
 sudo bash server/scripts/setup-step-ca.sh
 # → nhập CA password + provisioner password khi được hỏi
 # → output: mosquitto cert ở /etc/mosquitto/certs/, express cert ở
-#   /opt/print-service/certs/, root CA ở cùng chỗ.
+#   <INSTALL_DIR>/certs/, root CA ở cùng chỗ.
 
 # 3. Mở firewall
 sudo bash server/scripts/ufw-open-https.sh
@@ -776,19 +773,19 @@ sudo bash server/scripts/ufw-open-https.sh
 # 4. Update Mosquitto config
 sudo cp server/src/mosquitto/mosquitto.conf.example /etc/mosquitto/conf.d/step-ca.conf
 sudo mkdir -p /etc/step-ca/certs
-sudo cp /opt/print-service/certs/root_ca.crt /etc/step-ca/certs/
+sudo cp <INSTALL_DIR>/certs/root_ca.crt /etc/step-ca/certs/
 sudo chown mosquitto:mosquitto /etc/mosquitto/certs/server.{crt,key}
 sudo systemctl restart mosquitto
 ```
 
 #### Phase B — Server runtime config
 
-Sửa `/opt/print-service/.env`:
+Sửa `<INSTALL_DIR>/.env`:
 ```bash
 HTTPS_ENABLED=true
 HTTPS_PORT=443
-HTTPS_CERT_FILE=/opt/print-service/certs/server.crt
-HTTPS_KEY_FILE=/opt/print-service/certs/server.key
+HTTPS_CERT_FILE=<INSTALL_DIR>/certs/server.crt
+HTTPS_KEY_FILE=<INSTALL_DIR>/certs/server.key
 MQTT_CA_FILE=/etc/mosquitto/certs/server.crt
 ```
 
@@ -798,19 +795,19 @@ Restart: `pm2 restart print-service`.
 
 ```bash
 # HQ LAN HTTP — không thay đổi
-curl http://160.250.133.192:3000/api/health
+curl http://<SERVER_IP>:3000/api/health
 
 # HTTPS cho agents — verify cert chain
-curl --cacert /opt/print-service/certs/root_ca.crt \
-  https://160.250.133.192:443/api/health
+curl --cacert <INSTALL_DIR>/certs/root_ca.crt \
+  https://<SERVER_IP>:443/api/health
 
 # HTTPS download PDF (test job ID bất kỳ trong DB)
-curl --cacert /opt/print-service/certs/root_ca.crt \
-  https://160.250.133.192:443/api/print-jobs/<job-id>/file \
+curl --cacert <INSTALL_DIR>/certs/root_ca.crt \
+  https://<SERVER_IP>:443/api/print-jobs/<job-id>/file \
   -o /tmp/test.pdf
 
 # MQTT TLS — verify cert chain
-mosquitto_pub -h 160.250.133.192 -p 8883 \
+mosquitto_pub -h <SERVER_IP> -p 8883 \
   -t test/connectivity -m "ping" \
   --cafile /etc/step-ca/certs/root_ca.crt \
   -u printservice -P '<mqtt_pass>'
@@ -820,8 +817,8 @@ mosquitto_pub -h 160.250.133.192 -p 8883 \
 #### Phase D — Pilot rollout (1-3 chi nhánh)
 
 1. **Distribute root CA** cho branch IT:
-   - File: `/opt/print-service/certs/root_ca.crt` (~5KB)
-   - Kênh: encrypted email (PGP/SMIME), Bitwarden Send, hoặc USB nội bộ.
+   - File: `<INSTALL_DIR>/certs/root_ca.crt` (~5KB)
+   - Kênh: encrypted email (PGP/SMIME), Bitwarden Send (hoặc tool tương đương), hoặc USB nội bộ.
    - **KHÔNG** đăng lên public share / commit vào git.
 
 2. **Branch IT cài theo `agent/CA_INSTALL.md`**:
@@ -830,7 +827,7 @@ mosquitto_pub -h 160.250.133.192 -p 8883 \
 
 3. **Branch IT update `.env`**:
    ```bash
-   API_URL=https://160.250.133.192:443           # từ http://...:3000
+   API_URL=https://<SERVER_IP>:443                # từ http://...:3000
    MQTT_CA_FILE=C:\print-system\root_ca.crt      # từ .../ca.crt
    # Bỏ mọi dòng MQTT_REJECT_UNAUTHORIZED=false nếu có
    ```
@@ -844,9 +841,9 @@ Cron `0 3 * * * renew-step-certs.sh` chạy hàng ngày 03:00 sáng:
 - Renew cert Express → `fs.watch` trong `https-server.js` tự pick up → không cần restart app.
 - Log: `/var/log/step-renewal.log` — grep "ERROR" để check mỗi tuần.
 
-#### Phase F — Rollout rộng (sau pilot 1 tuần OK)
+#### Phase F — Rollout rộng (sau pilot OK)
 
-Lặp lại Phase D cho 27 chi nhánh còn lại. Khi tất cả 30 OK → close issue §10.1 #3 #4 vĩnh viễn.
+Lặp lại Phase D cho các chi nhánh còn lại. Khi tất cả đã OK → close issue §10.1 #3 #4 vĩnh viễn.
 
 #### Known issues / nếu gặp sự cố
 
@@ -899,7 +896,7 @@ Lặp lại Phase D cho 27 chi nhánh còn lại. Khi tất cả 30 OK → close
 ### Giai đoạn 1.5 — Team handoff (⏳ ĐANG LÀM)
 
 - ⏳ Setup Git monorepo
-- ⏳ Setup Bitwarden team vault
+- ⏳ Setup secret manager cho team
 - ⏳ Setup CI/CD (GitHub Actions)
 - ⏳ Setup secret rotation procedure
 - ⏳ Dev team onboard (1-2 tuần)
@@ -928,13 +925,15 @@ Lặp lại Phase D cho 27 chi nhánh còn lại. Khi tất cả 30 OK → close
 
 ## 12. LIÊN HỆ + ESCALATION
 
-| Vấn đề | Liên hệ |
+Tuỳ team bạn tự phân công người phụ trách các đầu việc dưới đây — gợi ý phân loại:
+
+| Vấn đề | Escalation |
 |---|---|
-| Server down / không vào được VPS | A (admin hệ thống) |
-| API contract / schema thay đổi | A review + approve trước khi merge |
-| Bug trong agent | Team dev → a review |
-| Secret bị lộ (compromised) | **A rotate ngay lập tức**, audit log |
-| Cần thêm chi nhánh mới | A tạo qua API, dev hỗ trợ deploy agent |
+| Server down / không vào được VPS | Người quản trị hạ tầng (có quyền SSH VPS) |
+| API contract / schema thay đổi | Maintainer review + approve trước khi merge |
+| Bug trong agent | Team dev mở issue/PR → maintainer review |
+| Secret bị lộ (compromised) | **Rotate ngay lập tức** (xem §8.4), ghi lại vào audit log |
+| Cần thêm chi nhánh mới | Người quản trị tạo qua API/CLI, dev hỗ trợ deploy agent |
 | Yêu cầu tính năng mới | Tạo GitHub issue, team dev estimate |
 
 ---
@@ -947,7 +946,7 @@ Lặp lại Phase D cho 27 chi nhánh còn lại. Khi tất cả 30 OK → close
 - [ ] Verify end-to-end: HQ → server → agent → giấy
 - [ ] Đọc source code `src/` (1,656 dòng), hiểu cấu trúc
 - [ ] Đọc `src/services/job-service.js` — đây là core logic
-- [ ] Yêu cầu a cấp Bitwarden access cho team
+- [ ] Yêu cầu người quản trị cấp quyền truy cập secret manager cho team
 - [ ] Test rotate secret procedure theo §8.4
 - [ ] Khi nhận task mới: tạo branch, code, test local, PR, chờ review
 
@@ -995,4 +994,4 @@ Lặp lại Phase D cho 27 chi nhánh còn lại. Khi tất cả 30 OK → close
 
 **Kết thúc báo cáo.** Chúc team dev làm việc hiệu quả!
 
-Nếu có câu hỏi, ping a hoặc comment trên GitHub issue. Mọi thay đổi quan trọng phải qua review của a trước khi merge.
+Nếu có câu hỏi, comment trên GitHub issue hoặc liên hệ maintainer. Mọi thay đổi quan trọng phải qua review của maintainer trước khi merge.

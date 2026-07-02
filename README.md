@@ -10,8 +10,9 @@ Hệ thống in PDF hợp đồng từ xa cho công ty có HQ + nhiều chi nhá
 
 ## Cấu trúc repo
 
-- `server/` — Node.js Print Service backend (Express + SQLite + MQTT)
+- `server/` — Node.js Print Service backend (Express + PostgreSQL + MQTT)
 - `agent/` — Node.js Print Agent chạy trên Windows (MQTT subscriber + SumatraPDF)
+- `web/` — HQ admin UI (React + Vite)
 - `shared/api-contract.md` — API spec (server ↔ agent ↔ client)
 - `docs/ARCHITECTURE.md` — Kiến trúc tổng thể
 
@@ -23,6 +24,9 @@ cd server
 npm install --omit=dev
 cp .env.example .env  # rồi điền secret
 node src/index.js
+
+# Bước bắt buộc kế tiếp: tạo client đầu tiên (không có client nào lúc mới dựng server)
+OUTPUT_FILE=install.json node scripts/gen-client.js "<tên client>"
 ```
 
 ### Agent (Windows)
@@ -36,6 +40,8 @@ npm install --omit=dev
 
 ## Tài liệu
 
+- [Dev onboarding](docs/DEV-ONBOARDING.md) — **bắt đầu từ đây** nếu bạn mới nhận repo
+- [Môi trường test dùng chung](docs/TEST-ENV.md) — test API ngay trên server có sẵn, không cần cài gì
 - [Server handover](server/HANDOVER.md) — Triển khai server production
 - [API contract](shared/api-contract.md) — REST + MQTT spec
 - [Architecture](docs/ARCHITECTURE.md) — Sơ đồ tổng thể

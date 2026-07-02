@@ -15,7 +15,7 @@ Dự án Print System đang ở giai đoạn 1.5 (Team handoff). Hướng phát 
 ## Q4 2026 (Oct-Dec) — SCALE TO 30 BRANCHES
 - [ ] Mua domain (vd `print.example.com`, ~$10/năm)
 - [ ] nginx reverse proxy + Let's Encrypt (certbot)
-- [ ] Bỏ self-signed cert cho API
+- [x] HTTPS cho API (dual HTTP/HTTPS listener, cert nội bộ self-signed hoặc Step-CA) — xem `server/HANDOVER.md` §4.4.1, §10.4 (vẫn cần Let's Encrypt/domain thật khi có domain)
 - [ ] Bulk tạo 25 branch mới (br_006..br_030) qua `POST /api/admin/agents`
 - [ ] Monitoring: Prometheus + Grafana dashboard
 - [ ] Alert: Telegram/PagerDuty khi service down
@@ -23,17 +23,16 @@ Dự án Print System đang ở giai đoạn 1.5 (Team handoff). Hướng phát 
 
 ## Q1 2027 (Jan-Mar) — UX & INTEGRATION
 - [x] Web UI cho HQ (xem job history, retry manual, filter theo branch/status) — `web/` (Vite + React)
-- [ ] Webhook ERP (giảm polling, optional)
-- [ ] Audit log chi tiết (ai in gì, lúc nào, IP, user-agent)
-- [ ] API versioning (`/api/v2/` prefix)
-- [ ] Bulk job API (gửi 100 hợp đồng cùng lúc đến N chi nhánh)
+- [x] Webhook ERP (giảm polling, optional) — đã có, xem `docs/API.md`
+- [x] Audit log chi tiết (ai in gì, lúc nào, IP, user-agent) — bảng `audit_log`, xem `docs/ARCHITECTURE.md` §Security
+- [x] API versioning (`/api/v2/` prefix) — clients, printers filter, jobs bulk/retry
+- [x] Bulk job API (gửi nhiều hợp đồng cùng lúc đến N chi nhánh) — `POST /api/v2/print-jobs/bulk`
 
 ## Backlog (chưa commit date)
-- PostgreSQL thay SQLite (khi > 100 jobs/phút)
+- SNMP polling máy in mạng để đọc chính xác mức mực/giấy (thay best-effort WMI)
 - Redis cache cho job metadata
 - Multi-region VPS (failover)
 - Mobile app cho chi nhánh (báo in xong, báo lỗi giấy)
-- Printer status feedback (hết giấy, kẹt giấy, offline)
 - Auto-discovery printer qua Bonjour/mDNS
 - i18n (Tiếng Việt / English UI)
 - Docker image + docker-compose

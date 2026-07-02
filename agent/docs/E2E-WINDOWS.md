@@ -23,10 +23,10 @@ kết nối được; gen-client giờ sẽ **chặn** và báo lỗi).
 ```bash
 cd /opt/print-system-github/server
 # HTTP — ĐÚNG server hiện tại (HTTPS_ENABLED=false; print-service chỉ chạy 3000):
-SERVER_PUBLIC_URL=http://160.250.133.192:3000 \
+SERVER_PUBLIC_URL=http://<SERVER_IP>:3000 \
   OUTPUT_FILE=install.json node scripts/gen-client.js "Client Test"
 # CHỈ dùng HTTPS khi server đã bật HTTPS_ENABLED=true + cấp cert nội bộ cho print-service:
-# SERVER_PUBLIC_URL=https://160.250.133.192:443 OUTPUT_FILE=install.json node scripts/gen-client.js "Client Test"
+# SERVER_PUBLIC_URL=https://<SERVER_IP>:443 OUTPUT_FILE=install.json node scripts/gen-client.js "Client Test"
 ```
 Lấy `root_ca.crt` = cert broker MQTT (self-signed). Trên server:
 `cp /etc/mosquitto/certs/server.crt root_ca.crt` (hoặc theo `agent/CA_INSTALL.md`).

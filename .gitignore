@@ -35,6 +35,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Claude Code
+.claude/
+
 # Agent specific (Windows)
 agent/runtime/
 agent/downloads/

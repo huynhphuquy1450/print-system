@@ -12,11 +12,13 @@ param(
   [Parameter(Mandatory=$false)]
   [string]$PrinterName = "",   # để trống = máy in default của agent
 
+  # đổi theo server thật của bạn
   [Parameter(Mandatory=$false)]
-  [string]$ApiBase = "http://160.250.133.192:3000",
+  [string]$ApiBase = "http://<SERVER_IP>:3000",
 
+  # đổi theo client thật của bạn
   [Parameter(Mandatory=$false)]
-  [string]$ClientId = "cli_3844de865fa7df32",
+  [string]$ClientId = "<CLIENT_ID>",
 
   [Parameter(Mandatory=$false)]
   [string]$ClientSecret = "<CLIENT_SECRET>"
