@@ -135,6 +135,39 @@ describe('GET /api/v1/branches', () => {
  expect(res.body.branches).toHaveLength(1);
  expect(stmts.listAllBranches.all).toHaveBeenCalled();
  });
+
+ test('200: ?status=online → chỉ trả branches online', async () => {
+ stmts.listAllBranches.all.mockResolvedValue([
+ { id: 'br_1', name: 'Branch 1', location: 'HCM', status: 'online', last_seen_at: 1000, created_at: 1000 },
+ { id: 'br_2', name: 'Branch 2', location: 'HN', status: 'offline', last_seen_at: null, created_at: 1000 },
+ ]);
+
+ const res = await request(app).get('/api/v1/branches?status=online');
+
+ expect(res.status).toBe(200);
+ expect(res.body.branches).toHaveLength(1);
+ expect(res.body.branches[0].id).toBe('br_1');
+ });
+
+ test('200: ?status=offline → chỉ trả branches offline', async () => {
+ stmts.listAllBranches.all.mockResolvedValue([
+ { id: 'br_1', name: 'Branch 1', location: 'HCM', status: 'online', last_seen_at: 1000, created_at: 1000 },
+ { id: 'br_2', name: 'Branch 2', location: 'HN', status: 'offline', last_seen_at: null, created_at: 1000 },
+ ]);
+
+ const res = await request(app).get('/api/v1/branches?status=offline');
+
+ expect(res.status).toBe(200);
+ expect(res.body.branches).toHaveLength(1);
+ expect(res.body.branches[0].id).toBe('br_2');
+ });
+
+ test('400: ?status=bogus → invalid status', async () => {
+ const res = await request(app).get('/api/v1/branches?status=bogus');
+
+ expect(res.status).toBe(400);
+ expect(stmts.listAllBranches.all).not.toHaveBeenCalled();
+ });
 });
 
 describe('POST /api/v1/branches', () => {

@@ -11,7 +11,7 @@
 #       Debian/Ubuntu: apt install -y step-cli step-ca
 #       RHEL/Fedora:   dnf install -y step-cli step-ca
 #       Manual:        https://github.com/smallstep/certificates/releases
-#   - 160.250.133.192 (or whatever SAN you want) resolves to this host
+#   - <SERVER_IP> (or whatever SAN you want) resolves to this host
 #
 # USAGE:
 #   sudo bash scripts/setup-step-ca.sh
@@ -31,12 +31,12 @@ CA_NAME="Print System Internal CA"
 CA_DNS="print-ca,localhost,127.0.0.1"
 CA_ADDRESS=":8443"
 CA_PROVISIONER="admin"
-SERVER_SAN="160.250.133.192"   # Public IP that agents connect to
+SERVER_SAN="<SERVER_IP>"   # Public IP or domain agents connect to — REQUIRED: set this before running
 CERT_VALIDITY="2160h"          # 90 days — matches the renewal cadence
 STEP_CA_DIR="/var/lib/step-ca"
 MOSQ_CERT_DIR="/etc/mosquitto/certs"
-EXPRESS_CERT_DIR="/opt/print-service/certs"
-RENEW_SCRIPT="/opt/print-service/scripts/renew-step-certs.sh"
+EXPRESS_CERT_DIR="<INSTALL_DIR>/certs"
+RENEW_SCRIPT="<INSTALL_DIR>/scripts/renew-step-certs.sh"
 LOG_FILE="/var/log/step-renewal.log"
 
 # --- Pre-flight checks -------------------------------------------------------
@@ -210,7 +210,7 @@ cat <<EOF
          sudo cp server/src/mosquitto/mosquitto.conf.example /etc/mosquitto/conf.d/step-ca.conf
          sudo systemctl restart mosquitto
 
-    3. Update /opt/print-service/.env:
+    3. Update <INSTALL_DIR>/.env:
          HTTPS_ENABLED=true
          HTTPS_PORT=443
          HTTPS_CERT_FILE=$EXPRESS_CERT_DIR/server.crt

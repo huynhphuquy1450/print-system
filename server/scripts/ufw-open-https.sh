@@ -43,8 +43,8 @@ cat <<EOF
 ==> Done.
 
 Verify connectivity from outside:
-  curl --cacert /opt/print-service/certs/root_ca.crt \\
-       https://160.250.133.192:$HTTPS_PORT/api/health
+  curl --cacert <INSTALL_DIR>/certs/root_ca.crt \\
+       https://<SERVER_IP>:$HTTPS_PORT/api/health
 
 If port still unreachable, check:
   - Cloud provider security group (AWS/GCP/Azure/DO all have separate

@@ -12,8 +12,13 @@ const { validate } = require('../middleware/validate');
  */
 router.get('/', verifyClient, async (req, res, next) => {
  try {
+ const { status } = req.query;
+ if (status !== undefined && status !== 'online' && status !== 'offline') {
+ return res.status(400).json({ error: "status phải là 'online' hoặc 'offline'" });
+ }
  const rows = await stmts.listAllBranches.all();
- const branches = rows.map((b) => ({
+ const filtered = status ? rows.filter((b) => b.status === status) : rows;
+ const branches = filtered.map((b) => ({
  id: b.id,
  name: b.name,
  location: b.location,

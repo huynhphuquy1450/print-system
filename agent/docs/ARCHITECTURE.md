@@ -3,7 +3,7 @@
 > Tài liệu kiến trúc sẽ được bổ sung sau. Hiện tại xem:
 > - `README.md` (tổng quan)
 > - Source code `agent.js` (có comment giải thích flow)
-> - Server spec tại `/opt/print-service/CLIENT_GUIDE.md` trên VPS
+> - Server spec tại `server/CLIENT_GUIDE.md` trong repo
 
 ## Tổng quan 1 phút
 

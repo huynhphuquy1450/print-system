@@ -1,160 +1,153 @@
-﻿# Print Agent (br_001)
+# Print Agent — Vận hành
 
-Node.js agent cháº¡y trÃªn Windows, subscribe MQTT tá»« Print Service, in PDF qua SumatraPDF, callback status vá» server.
+Node.js agent chạy trên Windows tại mỗi chi nhánh: subscribe MQTT từ Print Service, tải PDF qua
+API, in bằng SumatraPDF, báo trạng thái (`printed`/`failed`) về server.
 
-## Cáº¥u trÃºc thÆ° má»¥c
+## Cấu trúc thư mục (sau khi cài, trong `C:\print-system\`)
 
 ```
 C:\print-system\
-â”œâ”€â”€ agent.js              # Source code chÃ­nh
-â”œâ”€â”€ package.json          # Node deps (axios, dotenv, mqtt)
-â”œâ”€â”€ .env                  # Config runtime (token, paths) â€” KHÃ”NG commit
-â”œâ”€â”€ ca.crt                # TLS cert tá»« Mosquitto broker
-â”œâ”€â”€ node_modules/         # Deps (gitignore)
-â”œâ”€â”€ tools/
-â”‚   â””â”€â”€ SumatraPDF.exe    # SumatraPDF portable
-â”œâ”€â”€ agents/agent-01/
-â”‚   â””â”€â”€ tmp/              # PDF táº¡m khi in
-â”œâ”€â”€ logs/                 # Log file theo ngÃ y + service stdout/stderr
-â”‚   â””â”€â”€ 2026-06-22.log
-â”œâ”€â”€ scripts/
-â”‚   â”œâ”€â”€ fetch-cert.py     # Láº¥y ca.crt tá»« VPS (1 láº§n khi cÃ i)
-â”‚   â”œâ”€â”€ query-vps-db.py   # Query DB jobs trÃªn VPS (debug)
-â”‚   â”œâ”€â”€ install-service-elevated.ps1  # CÃ i NSSM service (UAC)
-â”‚   â”œâ”€â”€ fix-service.ps1   # Fix AppDirectory
-â”‚   â”œâ”€â”€ start-service.ps1 # Start service (UAC)
-â”‚   â”œâ”€â”€ register-cleanup-task.ps1  # ÄÄƒng kÃ½ Task Scheduler (UAC)
-â”‚   â””â”€â”€ cleanup-logs.ps1  # Cleanup log cÅ© + tmp leak
-â”œâ”€â”€ check.ps1             # Health check nhanh (cháº¡y tay)
-â””â”€â”€ README.md             # File nÃ y
+├── agent.js              # Vòng lặp chính: subscribe MQTT + fallback poll + spawn SumatraPDF
+├── register.js            # `node agent.js --register install.json` — tự đăng ký chi nhánh
+├── install.ps1             # Installer trọn gói (chạy 1 lần lúc cài máy mới)
+├── install-service.ps1     # Cài/refresh Windows Service qua NSSM (installer gọi lại, có thể chạy tay)
+├── check.ps1               # Health check nhanh (chạy tay khi nghi có sự cố)
+├── package.json / package-lock.json
+├── .env                     # Config runtime (BRANCH_ID, AGENT_TOKEN, MQTT_*, API_URL...) — KHÔNG commit git
+├── root_ca.crt              # CA cert để agent trust MQTTS/HTTPS nội bộ (KHÔNG có trong repo, HQ IT cấp riêng)
+├── node_modules/            # Deps (gitignore)
+├── tools/
+│   └── SumatraPDF.exe       # SumatraPDF portable, installer tự tải
+├── agents/agent-01/
+│   └── tmp/                 # PDF tạm lúc in, xoá sau khi xong
+└── logs/
+    ├── YYYY-MM-DD.log       # Log app theo ngày (UTC)
+    ├── service-stdout.log   # stdout của NSSM service
+    └── service-stderr.log   # stderr của NSSM service
 ```
 
-## YÃªu cáº§u
+## Yêu cầu
 
 - **Windows 10/11**
-- **Node.js v18+** (Ä‘Ã£ test v24.14.0)
-- **SumatraPDF** portable
-- **NSSM 2.24+** (cho Windows Service)
-- **Network:** má»Ÿ port 8883 (MQTTS) + 3000 (HTTPS API) tá»›i VPS `160.250.133.192`
+- **Node.js v18+** (installer tự cài qua winget nếu thiếu)
+- **SumatraPDF** portable (installer tự tải)
+- **NSSM 2.24+** cho Windows Service (installer tự tải)
+- **Network:** mở port 8883 (MQTTS) tới server, port 3000 hoặc 443 (API — xem `.env.example` để biết
+  cổng thật đang dùng) tới cùng server
 
-## CÃ i Ä‘áº·t tá»« Ä‘áº§u
+## Cài đặt — luồng thật (installer tự động)
+
+Agent **không** cài bằng cách điền tay từng biến `.env`. Luồng chuẩn:
+
+1. HQ IT/admin chạy **1 lần trên server**: `OUTPUT_FILE=install.json node scripts/gen-client.js "<tên client>"`
+   → sinh `install.json` chứa `server_url`, `client_id`, `client_secret` + khối `agent_env` (MQTT_URL,
+   MQTT_USER, MQTT_PASS, MQTT_CA_FILE, API_URL, SUMATRA_PATH...).
+2. Gửi `install.json` + `root_ca.crt` (CA cert của server) cho chi nhánh qua kênh an toàn (không email
+   thường, không chat công khai).
+3. Tại máy Windows chi nhánh, copy nguyên thư mục `agent\` + `install.json` + `root_ca.crt` (đặt cạnh
+   `install.ps1`), rồi chạy:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\install.ps1 -InstallJson .\install.json
+   ```
+   (tự xin quyền UAC nếu chưa chạy elevated). Có thể truyền sẵn tên/địa điểm để bỏ qua prompt tương tác:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\install.ps1 -InstallJson .\install.json -BranchName "Chi nhánh Quận 1" -Location "HCM"
+   ```
+4. `install.ps1` tự làm hết: kiểm tra/cài Node ≥ 18 → tạo cây thư mục `C:\print-system\` → copy mã
+   agent → tải SumatraPDF → cài `root_ca.crt` vào Windows Trusted Root → cài NSSM → `npm install` →
+   chạy `node agent.js --register install.json` (hỏi **Tên chi nhánh** + **Địa điểm**, gọi
+   `POST /api/setup/register-branch`, nhận `branch_id` + `agent_token`, ghi đầy đủ vào `.env`) → cài
+   Windows Service **tên động theo branch**: `PrintAgent-<branch_id>` → chạy `check.ps1` smoke test.
+5. Kết thúc in dòng xanh `✓ Hoàn tất. Service 'PrintAgent-<branch_id>' đã chạy.` — nếu in dòng đỏ
+   `⚠ CHƯA có root_ca.crt`, đặt `root_ca.crt` vào `C:\print-system` rồi `nssm restart PrintAgent-<branch_id>`.
+
+Runbook đầy đủ (kèm bước xác minh từng PASS) xem `agent/docs/E2E-WINDOWS.md`. Một `install.json` có
+thể dùng để đăng ký nhiều chi nhánh — chạy lại `node agent.js --register install.json` mỗi lần
+1 chi nhánh mới.
+
+## Cấu hình `.env`
+
+Xem `agent/.env.example` — các field chính (phần lớn do `register.js` tự ghi, không cần điền tay):
+
+| Biến | Nguồn | Ghi chú |
+|---|---|---|
+| `BRANCH_ID`, `AGENT_TOKEN` | `register.js` ghi sau khi đăng ký | Không set tay |
+| `MQTT_URL`, `MQTT_USER`, `MQTT_PASS`, `MQTT_CA_FILE` | từ khối `agent_env` trong `install.json` | Broker MQTT của server (mặc định cert self-signed) |
+| `API_URL` | từ `install.json` | Mặc định `http://<server>:3000`; chỉ HTTPS nếu server bật `HTTPS_ENABLED=true` |
+| `SUMATRA_PATH` | từ `install.json` hoặc mặc định `C:\print-system\tools\SumatraPDF.exe` | |
+| `PRINTER_NAME` | để trống = máy in mặc định | Đặt tên chính xác nếu muốn ép in ra máy khác |
+| `PRINT_SETTINGS` | mặc định `1,a4,fit` | Khổ giấy + scaling cho SumatraPDF |
+| `POLL_INTERVAL` | mặc định `15` giây | Fallback poll khi MQTT rớt |
+
+## Format in ra giấy
+
+Agent luôn ép về **A4 + fit-to-page** qua SumatraPDF `-print-settings "1,a4,fit"` (cấu hình được qua
+`PRINT_SETTINGS` trong `.env`).
+
+- **Khổ giấy**: A4 (mặc định). Có thể đổi: `a5`, `letter`, v.v.
+- **Scaling**: `fit` (co/giãn vừa khổ). Giá trị khác: `shrink`, `noscale`.
+- **Orientation**: theo PDF gốc (SumatraPDF không có flag ép portrait/landscape) — muốn ép portrait
+  tuyệt đối thì phải xoay PDF trước khi gửi (xử lý ở phía HQ/client).
+
+## Vận hành
+
+### Kiểm tra trạng thái
 
 ```powershell
-# 1. Táº¡o thÆ° má»¥c
-mkdir C:\print-system\tools
-mkdir C:\print-system\agents\agent-01\tmp
-mkdir C:\print-system\logs
-mkdir C:\print-system\scripts
-
-# 2. Táº£i SumatraPDF
-Invoke-WebRequest -Uri "https://www.sumatrapdfreader.org/dl/rel/3.6.1/SumatraPDF-3.6.1-64.zip" -OutFile "$env:TEMP\SumatraPDF.zip"
-Expand-Archive "$env:TEMP\SumatraPDF.zip" -DestinationPath "C:\print-system\tools"
-Move-Item "C:\print-system\tools\SumatraPDF-3.6.1-64.exe" "C:\print-system\tools\SumatraPDF.exe"
-
-# 3. Láº¥y ca.crt tá»« VPS
-python C:\print-system\scripts\fetch-cert.py
-
-# 4. Táº¡o .env (xem file máº«u) vá»›i:
-#    - BRANCH_ID, AGENT_TOKEN (láº¥y tá»« admin)
-#    - MQTT_USER, MQTT_PASS
-#    - PRINTER_NAME (tÃªn mÃ¡y in chÃ­nh xÃ¡c, má»Ÿ Printers xem)
-
-# 5. CÃ i deps
-cd C:\print-system
-npm install
-
-# 6. CÃ i NSSM
-winget install NSSM.NSSM
-# Hoáº·c táº£i thá»§ cÃ´ng vá» C:\Tools\nssm.exe
-
-# 7. CÃ i Windows Service (cáº§n UAC)
-powershell -File C:\print-system\scripts\install-service-elevated.ps1
-
-# 8. ÄÄƒng kÃ½ Task Scheduler cleanup (cáº§n UAC)
-powershell -File C:\print-system\scripts\register-cleanup-task.ps1
-```
-
-## Format in ra giáº¥y
-
-Agent **luÃ´n Ã©p vá» A4 + fit-to-page** (qua SumatraPDF `-print-settings "1,a4,fit"`).
-
-- **Khá»• giáº¥y**: A4 (máº·c Ä‘á»‹nh). CÃ³ thá»ƒ Ä‘á»•i: `a5`, `letter`, etc trong `.env`
-- **Scaling**: `fit` (co/giÃ£n vá»«a khá»•). CÃ¡c giÃ¡ trá»‹ khÃ¡c: `shrink`, `noscale`
-- **Orientation**: theo PDF gá»‘c (SumatraPDF khÃ´ng cÃ³ flag Ã©p portrait/landscape)
-
-Config trong `.env`:
-```
-PRINT_SETTINGS=1,a4,fit
-```
-
-- PDF A4 portrait â†’ in A4 portrait (khá»›p, khÃ´ng scale)
-- PDF A4 landscape â†’ in A4 landscape (xoay ngang)
-- PDF Letter â†’ scale xuá»‘ng vá»«a A4
-- Muá»‘n Ã©p portrait tuyá»‡t Ä‘á»‘i? Pháº£i xoay PDF trÆ°á»›c khi gá»­i (HQ phÃ­a client xá»­ lÃ½)
-
-## Váº­n hÃ nh
-
-### Kiá»ƒm tra tráº¡ng thÃ¡i
-
-```powershell
-# Health check tá»•ng
-powershell -File C:\print-system\check.ps1
+# Health check tổng hợp (tự suy ra tên service từ BRANCH_ID trong .env)
+powershell -ExecutionPolicy Bypass -File C:\print-system\check.ps1
 
 # Service status
-Get-Service PrintAgent-br001
+Get-Service PrintAgent-*
 
 # Log real-time
 Get-Content "C:\print-system\logs\$(Get-Date -Format 'yyyy-MM-dd').log" -Wait
+Get-Content C:\print-system\logs\service-stdout.log -Tail 30 -Wait
 ```
+
+`check.ps1` in ra: service status, 10 dòng log gần nhất, file PDF tạm còn sót (nếu có nghĩa là job bị
+kẹt), server có reachable không, và event log NSSM gần đây (restart/crash).
 
 ### Start / Stop / Restart
 
 ```powershell
-# Qua NSSM
-C:\Tools\nssm.exe start PrintAgent-br001
-C:\Tools\nssm.exe stop PrintAgent-br001
-C:\Tools\nssm.exe restart PrintAgent-br001
+# Qua NSSM (thay <branch_id> đúng của máy này — xem Get-Service PrintAgent-*)
+C:\Tools\nssm.exe start PrintAgent-<branch_id>
+C:\Tools\nssm.exe stop PrintAgent-<branch_id>
+C:\Tools\nssm.exe restart PrintAgent-<branch_id>
 
-# Qua PowerShell
-Start-Service PrintAgent-br001
-Stop-Service PrintAgent-br001
-Restart-Service PrintAgent-br001
+# Hoặc qua PowerShell
+Start-Service PrintAgent-<branch_id>
+Stop-Service PrintAgent-<branch_id>
+Restart-Service PrintAgent-<branch_id>
 ```
 
-### Gá»­i job test
+## Troubleshooting
 
-```powershell
-$login = Invoke-RestMethod -Method POST -Uri "http://160.250.133.192:3000/api/auth/login" -ContentType "application/json" -Body '{"client_id":"<client_id_from_secret_manager>","client_secret":"<client_secret_from_secret_manager>"}'
-$JWT = $login.token
-
-# Tá»« PDF báº¥t ká»³
-$pdf = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes("C:\path\to\file.pdf"))
-$body = @{ branch_id = "br_001"; pdf_base64 = $pdf; metadata = @{ test = "manual" } } | ConvertTo-Json
-Invoke-RestMethod -Method POST -Uri "http://160.250.133.192:3000/api/print-jobs" -Headers @{Authorization = "Bearer $JWT"} -ContentType "application/json" -Body $body
-```
-
-## Common errors & fix
-
-| Váº¥n Ä‘á» | NguyÃªn nhÃ¢n | Fix |
+| Vấn đề | Nguyên nhân | Cách fix |
 |---|---|---|
-| `Missing env: BRANCH_ID` | `.env` sai path hoáº·c format | `cat .env` kiá»ƒm tra, khÃ´ng cÃ³ space quanh `=` |
-| `unable to verify the first certificate` | `ca.crt` sai hoáº·c khÃ´ng Ä‘á»c Ä‘Æ°á»£c | `python scripts/fetch-cert.py` Ä‘á»ƒ láº¥y láº¡i |
-| `Not authorized` (MQTT) | `MQTT_USER` / `MQTT_PASS` sai | Check vá»›i admin |
-| `SumatraPDF exit 1` (khÃ´ng in Ä‘Æ°á»£c) | (1) `PRINTER_NAME` sai tÃªn; (2) thiáº¿u `-print-to` | Äáº·t `PRINTER_NAME=Brother HL-L2360D series (Copy 1)` (tÃªn chÃ­nh xÃ¡c) |
-| `HTTP 401` khi callback | Token sai (Ä‘Ã£ regen trÃªn server?) | YÃªu cáº§u admin regen token + update `.env` |
-| Service crash liÃªn tá»¥c | `AppDirectory` sai (process cháº¡y á»Ÿ `C:\Program Files\nodejs` khÃ´ng tÃ¬m tháº¥y `.env`) | `nssm set PrintAgent-br001 AppDirectory "C:\print-system"` rá»“i restart |
-| Job stuck á»Ÿ 'sent' | Agent khÃ´ng cháº¡y hoáº·c callback fail | `check.ps1` xem service; xem log cÃ³ error khÃ´ng |
+| `Missing env: BRANCH_ID` / crash-loop lúc khởi động | `.env` thiếu field (thường do `install.json` cũ không có khối `agent_env`) | Tạo lại `install.json`: `OUTPUT_FILE=install.json node scripts/gen-client.js "<tên client>"`, chạy lại `install.ps1` |
+| `UNABLE_TO_VERIFY_LEAF_SIGNATURE` / `unable to verify the first certificate` | Chưa cài `root_ca.crt`, hoặc cài sai store | Xem `agent/CA_INSTALL.md` — cài lại root CA vào Trusted Root (Local Machine) |
+| `Not authorized` (MQTT) | `MQTT_USER`/`MQTT_PASS` sai hoặc đã bị rotate | Kiểm tra `.env`, yêu cầu HQ cấp lại `install.json`/thông tin MQTT mới |
+| `SumatraPDF exit code khác 0` (không in được) | (1) `PRINTER_NAME` sai tên; (2) máy in offline/hết giấy | Kiểm tra tên máy in chính xác trong Windows "Printers"; đặt vào `PRINTER_NAME` trong `.env` rồi restart service |
+| `HTTP 401` khi callback status | `AGENT_TOKEN` sai hoặc đã bị regen trên server | Yêu cầu admin regen token (`POST /api/branches/:id/regen-token`), cập nhật `.env`, restart service |
+| Service crash liên tục / `AppDirectory` sai | Service chạy sai working directory | `C:\Tools\nssm.exe set PrintAgent-<branch_id> AppDirectory "C:\print-system"` rồi restart |
+| Job kẹt ở `sent` | Agent không chạy hoặc callback status fail | `check.ps1` xem service status; xem log có lỗi không |
+| Máy in tự phát hiện nhưng chưa xuất hiện job | Printer mới discover cần **approve** trên admin UI trước khi nhận job | Vào web admin duyệt máy in (`approved: 1`) |
 
-## Báº£o máº­t
+Cần dán log để debug: `logs\service-stdout.log`, `logs\service-stderr.log`, output cửa sổ
+`install.ps1` (nếu là lỗi lúc cài), output `Get-Service PrintAgent-*` và `check.ps1`.
 
-- File `.env` chá»©a token, **KHÃ”NG commit git**, **KHÃ”NG share**
-- File `ca.crt` khÃ´ng nháº¡y cáº£m (public cert) nhÆ°ng cÅ©ng khÃ´ng cáº§n share
-- Token nÃªn Ä‘Æ°á»£c regen Ä‘á»‹nh ká»³ (qua API `/api/branches/:id/regen-token`)
-- Náº¿u lá»™ token: SSH vÃ o VPS regen token má»›i, update `.env`, restart service
+## Bảo mật
 
-## LiÃªn há»‡
+- File `.env` chứa token, **KHÔNG commit git**, **KHÔNG share** qua chat.
+- File `root_ca.crt` không nhạy cảm (public cert) nhưng cũng không cần share rộng rãi ngoài mục đích cài đặt.
+- `AGENT_TOKEN` nên được regen định kỳ (qua API `POST /api/branches/:id/regen-token`).
+- Nếu lộ token: regen token mới trên server, cập nhật `.env` trên máy chi nhánh, restart service.
 
-Admin: Huynh Phu Quy  
-Server: VPS 160.250.133.192, `/opt/print-service/`  
-Spec Ä‘áº§y Ä‘á»§: `docs/CLIENT_GUIDE.md`
+## Tài liệu liên quan
 
+- `agent/docs/E2E-WINDOWS.md` — runbook chạy thử E2E trên máy Windows test, có bước PASS/FAIL cụ thể
+- `agent/docs/ARCHITECTURE.md` — luồng xử lý job trong agent
+- `agent/CA_INSTALL.md` — cài root CA chi tiết (GUI/certlm/PowerShell)
+- `docs/API.md` — API spec đầy đủ (server ↔ agent ↔ client)

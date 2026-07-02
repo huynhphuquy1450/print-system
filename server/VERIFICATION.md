@@ -1,6 +1,6 @@
 # Print Service - Hướng dẫn Verify & Vận hành
 
-> **Giai đoạn 1 (MVP) — Print Service + Mosquitto** trên VPS Ubuntu `160.250.133.192`.
+> **Giai đoạn 1 (MVP) — Print Service + Mosquitto** trên VPS Ubuntu `<SERVER_IP>`.
 > Mọi endpoint đã được test end-to-end từ VPS ngày 2026-06-21.
 
 ## 1. Tổng quan hệ thống
@@ -17,14 +17,14 @@
 **Tech stack:**
 - Node.js 24.15.0 + Express 4
 - MQTT broker: Mosquitto 2.0.18 (TLS self-signed, port 8883)
-- DB: SQLite (WAL mode) tại `/opt/print-service/data/jobs.db`
+- DB: SQLite (WAL mode) tại `<INSTALL_DIR>/data/jobs.db`
 - Process: PM2 7.0.1
 - Firewall: UFW (allow 22, 3000, 8883)
 
 ## 2. Cấu trúc thư mục
 
 ```
-/opt/print-service/
+<INSTALL_DIR>/
 ├── src/                # Source code
 ├── scripts/            # gen-client, gen-agents, health-check
 ├── data/jobs.db        # SQLite DB
@@ -43,10 +43,10 @@
 
 | Mục | Giá trị |
 |---|---|
-| **Server URL** | `http://160.250.133.192:3000` (HTTP chưa bật TLS — GĐ1) |
-| **MQTT broker** | `mqtts://160.250.133.192:8883` |
-| **MQTT CA cert** | Copy từ VPS: `scp admin@160.250.133.192:/etc/mosquitto/certs/server.crt C:\print-system\ca.crt` |
-| **Client ID** | `cli_3844de865fa7df32` |
+| **Server URL** | `http://<SERVER_IP>:3000` (HTTP chưa bật TLS — GĐ1) |
+| **MQTT broker** | `mqtts://<SERVER_IP>:8883` |
+| **MQTT CA cert** | Copy từ VPS: `scp <user>@<SERVER_IP>:/etc/mosquitto/certs/server.crt C:\print-system\ca.crt` |
+| **Client ID** | `<CLIENT_ID>` |
 | **Client Secret** | `<CLIENT_SECRET>` |
 | **br_001 agent_token** | `<AGENT_TOKEN>` |
 | **br_002 agent_token** | (regen mới qua API, xem §8) |
@@ -103,7 +103,7 @@ curl -s http://localhost:3000/health
 
 ### 5.2. Login → lấy JWT
 ```bash
-CLIENT_ID="cli_3844de865fa7df32"
+CLIENT_ID="<CLIENT_ID>"
 CLIENT_SECRET="<CLIENT_SECRET>"
 
 JWT=$(curl -s -X POST http://localhost:3000/api/auth/login \
@@ -161,13 +161,13 @@ curl -s http://localhost:3000/api/print-jobs -H "Authorization: Bearer $JWT"   #
 ### 6.1. Từ VPS (local test)
 ```bash
 # Subscribe br_001 (sẽ thấy job gửi tới br_001)
-mosquitto_sub -h 160.250.133.192 -p 8883 \
+mosquitto_sub -h <SERVER_IP> -p 8883 \
   -u br_001 -P "<BRANCH_MQTT_PASS_br_001>" \
   --cafile /etc/mosquitto/certs/server.crt \
   -t "company/printer/br_001/#" -v
 
 # Mở terminal khác, publish thử (giả lập server)
-mosquitto_pub -h 160.250.133.192 -p 8883 \
+mosquitto_pub -h <SERVER_IP> -p 8883 \
   -u printservice -P "<MQTT_PASS>" \
   --cafile /etc/mosquitto/certs/server.crt \
   -t "company/printer/br_001/jobs" \
@@ -177,13 +177,13 @@ mosquitto_pub -h 160.250.133.192 -p 8883 \
 ### 6.2. Từ máy Windows local của a
 ```cmd
 :: 1. Copy CA cert từ VPS về
-scp admin@160.250.133.192:/etc/mosquitto/certs/server.crt C:\print-system\ca.crt
+scp <user>@<SERVER_IP>:/etc/mosquitto/certs/server.crt C:\print-system\ca.crt
 
 :: 2. Download mosquitto client Windows từ https://mosquitto.org/files/binary/win64/
 ::    Giải nén, thêm vào PATH
 
 :: 3. Subscribe để xem job (giống agent sẽ làm)
-mosquitto_sub -h 160.250.133.192 -p 8883 -u br_001 -P <BRANCH_MQTT_PASS_br_001> --cafile C:\print-system\ca.crt -t "company/printer/br_001/#" -v
+mosquitto_sub -h <SERVER_IP> -p 8883 -u br_001 -P <BRANCH_MQTT_PASS_br_001> --cafile C:\print-system\ca.crt -t "company/printer/br_001/#" -v
 ```
 
 ## 7. Test agent callback (giả lập agent in xong)
@@ -238,12 +238,12 @@ curl -s -X POST http://localhost:3000/api/branches/br_001/regen-token \
 
 ```bash
 # Backups tự động mỗi ngày 2h sáng (cron backup-db)
-# File ở: /opt/print-service/data/backups/jobs-YYYY-MM-DD.db
-ls -la /opt/print-service/data/backups/
+# File ở: <INSTALL_DIR>/data/backups/jobs-YYYY-MM-DD.db
+ls -la <INSTALL_DIR>/data/backups/
 
 # Restore từ backup
 pm2 stop print-service
-cp /opt/print-service/data/backups/jobs-2026-06-21.db /opt/print-service/data/jobs.db
+cp <INSTALL_DIR>/data/backups/jobs-2026-06-21.db <INSTALL_DIR>/data/jobs.db
 pm2 start print-service
 ```
 
@@ -283,8 +283,8 @@ Khi sẵn sàng → mua domain (~$10/năm tại Namecheap/Google), setup Let's E
 - `/etc/mosquitto/conf.d/print-service.conf` — MQTT broker
 - `/etc/mosquitto/acl` — ACL per-branch
 - `/etc/mosquitto/passwd` — MQTT users (hash)
-- `/opt/print-service/.env` — App secrets (chmod 600)
-- `/opt/print-service/ecosystem.config.js` — PM2
+- `<INSTALL_DIR>/.env` — App secrets (chmod 600)
+- `<INSTALL_DIR>/ecosystem.config.js` — PM2
 - `/etc/mosquitto/certs/server.crt` + `server.key` — Self-signed TLS
 
 **Scripts:**

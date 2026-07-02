@@ -136,6 +136,8 @@ Tham chiếu: `src/api/branches.js`. Tất cả route **`verifyClient`**.
 
 ### GET /api/branches
 
+- **Query:** `status`? — lọc theo trạng thái trạm, chỉ nhận `online` hoặc `offline`. Bỏ trống = trả tất cả.
+- **Lỗi:** `400 status phải là 'online' hoặc 'offline'` (giá trị `status` không hợp lệ).
 - **200:** `{ "branches": [ { "id", "name", "location", "status", "last_seen_at", "created_at" } ] }` (đã loại bỏ token hash).
 
 ### POST /api/branches
@@ -201,12 +203,15 @@ Tham chiếu: `src/api/clients.js`. **`verifyClient`**, mount tại **`/api/v2`*
 
 Tham chiếu: `src/api/printers.js`.
 
-### GET /api/printers?branch_id=
+### GET /api/printers
 
 - **Auth:** `verifyClient`.
-- **Query:** `branch_id` bắt buộc.
-- **Lỗi:** `400 branch_id query param is required`; `404 Branch '<id>' not found`.
-- **200:** `{ "printers": [ ... ] }`.
+- **Query (tất cả tùy chọn, kết hợp được với nhau):**
+  - `branch_id`? — có: liệt kê máy in của trạm đó (hành vi cũ, giữ nguyên); **bỏ trống: liệt kê máy in của TẤT CẢ trạm**, mỗi máy in kèm thêm `branch_id`, `branch_name` và `branch_status` (trạng thái của trạm).
+  - `status`? — lọc theo trạng thái máy in (`online | out_of_paper | paper_jam | low_toner | no_toner | offline | unknown`).
+  - `approved`? — lọc theo cờ duyệt, chỉ nhận `0` hoặc `1`.
+- **Lỗi:** `404 Branch '<id>' not found` (khi có `branch_id`); `400 Invalid status: <value>`; `400 approved must be 0 or 1`.
+- **200:** `{ "printers": [ ... ] }` — shape không đổi; các field `branch_name`/`branch_status` chỉ xuất hiện khi gọi **không** kèm `branch_id` (additive).
 
 ### POST /api/printers
 
@@ -218,7 +223,9 @@ Tham chiếu: `src/api/printers.js`.
 ### POST /api/printers/heartbeat
 
 - **Auth:** `verifyAgent` (chỉ Windows agent).
-- **Body:** `{ "printers": [ { "name", "status" } ] }`. `status` hợp lệ: `online | out_of_paper | paper_jam | offline | unknown`.
+- **Body:** `{ "printers": [ { "name", "status" } ] }`. `status` hợp lệ: `online | out_of_paper | paper_jam | low_toner | no_toner | offline | unknown`.
+- Trạng thái mực: agent map từ WMI `Win32_Printer.DetectedErrorState` — `5` → `low_toner` (Low Toner), `6` → `no_toner` (No Toner). **Best-effort theo driver**: nhiều driver không báo mã 5/6 (chỉ trả `2`/No Error) nên không phải máy in nào cũng phát hiện được mực.
+- Chuyển trạng thái vào `low_toner`/`no_toner` bắn alert edge-triggered `printer.low_toner`/`printer.no_toner` (giống `out_of_paper`/`paper_jam`); quay về `online` bắn `printer.online` (recovery).
 - **Lỗi:** `400 printers must be an array`.
 - **200:** `{ "ok": true, "updated", "discovered" }`.
 
@@ -339,6 +346,27 @@ Tham chiếu: `src/api/jobs-v2.js`. **`verifyClient`**, mount tại **`/api/v2`*
 > ## ✅ Trả lời thẳng: Gửi PDF in HOÀN TOÀN qua API, KHÔNG cần web UI
 >
 > Web UI **chỉ** để HQ quản trị trạm / máy in / client / cảnh báo. Toàn bộ luồng ERP gửi lệnh in được thực hiện qua REST API dưới đây.
+
+### Bước 0 — Lấy danh sách cửa hàng / máy in đang online để chọn nơi in
+
+Trước khi submit job, ERP nên cho người dùng chọn **trạm** (cửa hàng) và **máy in** đang sẵn sàng. Hai endpoint dưới đây (cần Bearer token — xem Bước 2) hỗ trợ lọc trực tiếp:
+
+```bash
+# Danh sách cửa hàng đang online
+curl -s "http://localhost:3000/api/branches?status=online" \
+  -H "Authorization: Bearer <JWT>"
+# → {"branches":[{"id":"<BRANCH_ID>","name":"Cửa hàng Q1","status":"online",...}]}
+
+# Danh sách máy in đang online + đã duyệt, trên TẤT CẢ trạm (không cần branch_id)
+curl -s "http://localhost:3000/api/printers?status=online&approved=1" \
+  -H "Authorization: Bearer <JWT>"
+# → {"printers":[{"id":"prn_…","name":"HP-LJ","status":"online","approved":1,
+#                 "branch_id":"<BRANCH_ID>","branch_name":"Cửa hàng Q1","branch_status":"online",...}]}
+```
+
+- Gọi `GET /api/printers` **không kèm** `branch_id` để lấy máy in mọi trạm, mỗi máy kèm `branch_id`/`branch_name`/`branch_status` — đủ dữ liệu dựng picker "chọn cửa hàng → chọn máy in" trong 1 request.
+- Lọc thêm theo trạm cụ thể: thêm `&branch_id=<BRANCH_ID>` (kết hợp được với `status`/`approved`).
+- `approved=1` loại các máy in auto-discovery chưa được HQ duyệt.
 
 ### Bước 1 — Lấy credential (client_id + client_secret)
 
@@ -592,8 +620,9 @@ Tạo branch hàng loạt.
 
 - **Auth:** public, gated bằng credential trong body + `registerLimiter` (cửa sổ 1 giờ, mặc định **5 req/giờ/IP** → `429`).
 - **Body:** `{ "client_id", "client_secret", "branch_name" (1-100), "location"? }`.
-- **Lỗi:** `401 Invalid client credentials`; `409` (branch đã tồn tại, kèm `branch_id`); `400` (vi phạm khóa ngoại FK).
-- **201:** `{ "branch_id", "agent_token", "topic_prefix" }`.
+- **Idempotent re-register:** nếu `branch_name` đã tồn tại và branch đó thuộc **chính client đang xác thực** → không lỗi nữa; server **xoay token** của branch hiện có (token cũ vô hiệu ngay) và trả `200 { "branch_id" (của branch cũ), "agent_token" (mới), "topic_prefix" }` — cùng shape với đăng ký mới. Cho phép cài lại agent trên máy đã đăng ký mà không cần HQ can thiệp. Sự kiện được audit (`branch.reregister`).
+- **Lỗi:** `401 Invalid client credentials`; `409` (trùng tên nhưng branch thuộc **client khác**, kèm `branch_id`; hoặc va chạm id hiếm gặp — retry); `400` (vi phạm khóa ngoại FK).
+- **201:** `{ "branch_id", "agent_token", "topic_prefix" }` (đăng ký mới).
 
 ---
 

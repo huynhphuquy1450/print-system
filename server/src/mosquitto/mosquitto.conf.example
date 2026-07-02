@@ -7,10 +7,10 @@
 # PREREQUISITES:
 #   - Run scripts/setup-step-ca.sh to provision server.crt/server.key
 #     into /etc/mosquitto/certs/
-#   - Copy root_ca.crt from /opt/print-service/certs/ to a path the
+#   - Copy root_ca.crt from <INSTALL_DIR>/certs/ to a path the
 #     mosquitto user can read. The default is /etc/step-ca/certs/root_ca.crt
 #     — create that dir with: sudo mkdir -p /etc/step-ca/certs && \
-#     sudo cp /opt/print-service/certs/root_ca.crt /etc/step-ca/certs/ && \
+#     sudo cp <INSTALL_DIR>/certs/root_ca.crt /etc/step-ca/certs/ && \
 #     sudo chmod 644 /etc/step-ca/certs/root_ca.crt
 #   - Existing /etc/mosquitto/passwd and /etc/mosquitto/acl are kept as-is
 #     — this config references them for MQTT auth.

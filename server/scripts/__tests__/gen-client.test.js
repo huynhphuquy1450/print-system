@@ -112,7 +112,7 @@ describe('gen-client (createClient + writeInstallFile)', () => {
  });
  test('URL server thật / rỗng → false', () => {
  expect(publicUrlIsLocalhost('https://print.example.com')).toBe(false);
- expect(publicUrlIsLocalhost('http://160.250.133.192:3000')).toBe(false);
+ expect(publicUrlIsLocalhost('http://203.0.113.5:3000')).toBe(false);
  expect(publicUrlIsLocalhost('http://localhost-evil.com')).toBe(false);
  expect(publicUrlIsLocalhost('')).toBe(false);
  expect(publicUrlIsLocalhost(undefined)).toBe(false);

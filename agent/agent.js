@@ -471,6 +471,8 @@ async function probePrinters() {
           case 3: // Low Paper
           case 4: return { name, status: 'out_of_paper' }; // No Paper
           case 8: return { name, status: 'paper_jam' };
+          case 5: return { name, status: 'low_toner' }; // Low Toner
+          case 6: return { name, status: 'no_toner' }; // No Toner
           default:
             // 2 = No Error; 0/null/undefined = driver không báo lỗi → coi như online (đang sẵn sàng).
             if (p.DetectedErrorState === 2 || p.DetectedErrorState === 0

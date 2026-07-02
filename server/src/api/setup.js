@@ -82,6 +82,25 @@ router.post('/register-branch', registerLimiter, async (req, res, next) => {
  // Disambiguate: was it UNIQUE(client_id, name) or another UNIQUE?
  const existing = await stmts.getBranchByClientAndName.get({ client_id, name: branch_name });
  if (existing) {
+ if (existing.client_id === client_id) {
+ // Idempotent re-register: rotate the existing branch's token instead of failing.
+ await stmts.updateBranchToken.run({ agent_token_hash: tokenHash, id: existing.id });
+
+ res.locals.audit = { action: 'branch.reregister', resource_type: 'branch', resource_id: existing.id };
+ logger.info('Branch re-registered (token rotated)', {
+ branch_id: existing.id,
+ client_id,
+ client_name: client.name,
+ branch_name,
+ ip: req.ip,
+ });
+
+ return res.status(200).json({
+ branch_id: existing.id,
+ agent_token: agentToken,
+ topic_prefix: config.mqtt.topicPrefix,
+ });
+ }
  return res.status(409).json({
  error: `Branch '${branch_name}' already exists for this client`,
  branch_id: existing.id,

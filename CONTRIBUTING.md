@@ -98,8 +98,8 @@ Thêm test khi đóng góp:
 
 **KHÔNG** mở public issue cho security bug.
 
-Gửi email: `admin@printservice.local`
-Hoặc tạo private security advisory trên GitHub tab Security → Advisories.
+Dùng GitHub Security Advisories của repo này (private vulnerability reporting): tab **Security** →
+**Advisories** → **Report a vulnerability**.
 
 ## License
 

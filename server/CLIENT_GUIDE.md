@@ -2,7 +2,7 @@
 
 > File này tổng hợp **mọi thứ đã build & verify trên server**. A copy về máy Windows, dùng làm tài liệu chính thức khi code Agent.
 > 
-> **Server đang chạy ở:** VPS `160.250.133.192` (Ubuntu 24.04, user `admin`).
+> **Server đang chạy ở:** VPS Ubuntu 24.04 (`<SERVER_IP>`, user `<user>`).
 > **Ngày build:** 2026-06-21.
 > **Trạng thái:** PM2 `online`, Mosquitto `active`, đã pass 11 test cases end-to-end (xem §11).
 
@@ -14,7 +14,7 @@
 [HQ ERP/CRM]
    │ POST /api/print-jobs (HTTPS API + JWT)
    ▼
-[Print Service :3000] ──── save PDF to /opt/print-service/storage/ ──── insert jobs DB
+[Print Service :3000] ──── save PDF to <INSTALL_DIR>/storage/ ──── insert jobs DB
    │
    │ publish (MQTTS :8883, TLS, ACL)
    ▼
@@ -79,13 +79,13 @@
 
 ### 3.1. Client (HQ → server) — JWT Bearer
 - Header: `Authorization: Bearer <jwt>`
-- JWT ký bằng HS256, secret lưu ở `/opt/print-service/.env` (`JWT_SECRET`)
+- JWT ký bằng HS256, secret lưu ở `<INSTALL_DIR>/.env` (`JWT_SECRET`)
 - Expire: 7 ngày
 - Payload: `{sub: <client_id>, name, type:"client", iat, exp}`
 - Login: POST `/api/auth/login` với `{client_id, client_secret}` → nhận token
 
 **Đã có sẵn 1 client test:**
-- `client_id`: `cli_3844de865fa7df32`
+- `client_id`: `<CLIENT_ID>`
 - `client_secret`: `<CLIENT_SECRET>`
 
 ### 3.2. Agent (Agent → server) — Device token
@@ -104,7 +104,7 @@
 ## 4. MQTT — giao thức
 
 ### 4.1. Connection
-- URL: `mqtts://160.250.133.192:8883`
+- URL: `mqtts://<SERVER_IP>:8883`
 - TLS: self-signed cert. Agent PHẢI trust cert này (copy `ca.crt` về → trỏ `--cafile` hoặc trong code `fs.readFileSync`)
 - Username/Password: mỗi user 1 cặp, lưu ở `/etc/mosquitto/passwd` (mosquitto hash bcrypt)
 
@@ -139,7 +139,7 @@
    - pdf_base64 decode → Buffer
    - check magic bytes "%PDF-" (5 bytes đầu)
    ↓
-3. Server save PDF → /opt/print-service/storage/{job_id}.pdf
+3. Server save PDF → <INSTALL_DIR>/storage/{job_id}.pdf
    ↓
 4. Server insert jobs row (status='pending')
    ↓
@@ -195,7 +195,7 @@ Khi agent (re)connect MQTT thành công, nó cần fetch lại các job pending/
 ```
 
 **Quan trọng:**
-- KHÔNG dùng `file_path` từ list response để SFTP/local đọc file (file_path là `/opt/print-service/storage/...` trên VPS, agent ở Windows không truy cập được)
+- KHÔNG dùng `file_path` từ list response để SFTP/local đọc file (file_path là `<INSTALL_DIR>/storage/...` trên VPS, agent ở Windows không truy cập được)
 - LUÔN download qua `/api/print-jobs/:id/file`
 - Nếu download trả 410 (job đã printed/failed trong lúc agent đang xử lý) → skip, không in, không báo failed
 - Nếu download trả 404 → báo failed với error "PDF file missing on server"
@@ -226,14 +226,14 @@ Khi agent (re)connect MQTT thành công, nó cần fetch lại các job pending/
 
 ## 9. Server config (a không cần biết chi tiết, chỉ cần tham khảo nếu debug)
 
-**File:** `/opt/print-service/.env` (chmod 600, KHÔNG share)
+**File:** `<INSTALL_DIR>/.env` (chmod 600, KHÔNG share)
 ```
 NODE_ENV=production
 PORT=3000
 DB_PATH=./data/jobs.db
 STORAGE_PATH=./storage
 STORAGE_RETENTION_DAYS=7
-MQTT_URL=mqtts://160.250.133.192:8883
+MQTT_URL=mqtts://<SERVER_IP>:8883
 MQTT_USER=printservice
 MQTT_PASS=<MQTT_PASS>
 MQTT_CA_FILE=/etc/mosquitto/certs/server.crt
@@ -292,12 +292,12 @@ topic write company/printer/status
 
 ```bash
 # SSH vào VPS
-ssh admin@160.250.133.192
+ssh <user>@<SERVER_IP>
 
 # Login lấy JWT
 JWT=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"client_id":"cli_3844de865fa7df32","client_secret":"<CLIENT_SECRET>"}' \
+  -d '{"client_id":"<CLIENT_ID>","client_secret":"<CLIENT_SECRET>"}' \
   | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).token))")
 
 # Regen token cho br_002 (br_001 đã regen rồi)
@@ -348,11 +348,11 @@ require('dotenv').config();
 
 const BRANCH_ID = process.env.BRANCH_ID;          // 'br_001'
 const AGENT_TOKEN = process.env.AGENT_TOKEN;      // 64-char hex
-const MQTT_URL = process.env.MQTT_URL;            // 'mqtts://160.250.133.192:8883'
+const MQTT_URL = process.env.MQTT_URL;            // 'mqtts://<SERVER_IP>:8883'
 const MQTT_USER = process.env.MQTT_USER;          // 'br_001'
 const MQTT_PASS = process.env.MQTT_PASS;          // 32-char hex
 const MQTT_CA_FILE = process.env.MQTT_CA_FILE;    // 'C:\\print-system\\ca.crt'
-const API_URL = process.env.API_URL;              // 'http://160.250.133.192:3000'
+const API_URL = process.env.API_URL;              // 'http://<SERVER_IP>:3000'
 const SUMATRA_PATH = process.env.SUMATRA_PATH;    // 'C:\\print-system\\tools\\SumatraPDF.exe'
 const TMP_DIR = process.env.TMP_DIR || path.join(__dirname, 'tmp');
 const PRINTER_NAME = process.env.PRINTER_NAME;    // optional, mặc định máy in default
@@ -580,11 +580,11 @@ connectMqtt();
 ```
 BRANCH_ID=br_001
 AGENT_TOKEN=<AGENT_TOKEN>
-MQTT_URL=mqtts://160.250.133.192:8883
+MQTT_URL=mqtts://<SERVER_IP>:8883
 MQTT_USER=br_001
 MQTT_PASS=<BRANCH_MQTT_PASS_br_001>
 MQTT_CA_FILE=C:\print-system\ca.crt
-API_URL=http://160.250.133.192:3000
+API_URL=http://<SERVER_IP>:3000
 SUMATRA_PATH=C:\print-system\tools\SumatraPDF.exe
 TMP_DIR=C:\print-system\agents\agent-01\tmp
 # PRINTER_NAME=  (bỏ trống = máy in mặc định của Windows)
@@ -639,7 +639,7 @@ node agent.js
 ## 15. File server summary (cho a tham khảo)
 
 ```
-/opt/print-service/
+<INSTALL_DIR>/
 ├── src/                  (17 files - logic server)
 │   ├── index.js          (entry, signal handling)
 │   ├── app.js            (Express setup)
@@ -676,10 +676,10 @@ node agent.js
 ---
 
 **Tóm lại a cần nhớ:**
-- Server chạy ở `http://160.250.133.192:3000` + `mqtts://160.250.133.192:8883`
+- Server chạy ở `http://<SERVER_IP>:3000` + `mqtts://<SERVER_IP>:8883`
 - Agent subscribe topic `company/printer/{branch_id}/jobs`
 - Agent callback `POST /api/print-jobs/{job_id}/status` với `X-Agent-Token` + `X-Branch-Id`
 - Token đã regen cho br_001, br_002/br_003 cần regen khi a cần
-- Đã có sẵn 1 client test (`cli_3844de865fa7df32`) dùng để gửi job từ HQ
+- Đã có sẵn 1 client test (`<CLIENT_ID>`) dùng để gửi job từ HQ
 
 Khi a build xong agent, gặp vấn đề gì thì SSH vào VPS check log + DB, hoặc nhắn tôi hỗ trợ.

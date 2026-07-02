@@ -351,6 +351,11 @@ const stmts = {
  listPrintersByBranch: buildStmt('listPrintersByBranch', `
  SELECT * FROM printers WHERE branch_id = @branch_id ORDER BY is_default DESC, name ASC
  `),
+ listAllPrintersWithBranch: buildStmt('listAllPrintersWithBranch', `
+ SELECT p.*, b.name AS branch_name, b.status AS branch_status
+ FROM printers p JOIN branches b ON b.id = p.branch_id
+ ORDER BY b.name ASC, p.is_default DESC, p.name ASC
+ `),
  deletePrinter: buildStmt('deletePrinter', `DELETE FROM printers WHERE id = @id`),
  updatePrinterStatus: buildStmt('updatePrinterStatus', `
  UPDATE printers SET status = @status, last_seen_at = @last_seen_at

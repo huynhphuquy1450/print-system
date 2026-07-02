@@ -1,11 +1,31 @@
 ﻿# Health check for Print Agent
 # Run this when something seems wrong
 param(
-  [string]$ServiceName = 'PrintAgent-br001',
+  [string]$ServiceName = '',
   [string]$AppDir = 'C:\print-system'
 )
 
 $ErrorActionPreference = 'Continue'
+
+# .env do install.ps1 / register.js ghi (cùng đường dẫn mà agent.js đọc lúc chạy): dùng để suy ra
+# tên service thật (PrintAgent-<BRANCH_ID>) và API_URL thay vì hardcode theo trạm đầu tiên (br001).
+function Get-EnvValue {
+  param([string]$EnvPath, [string]$Key)
+  if (-not (Test-Path $EnvPath)) { return $null }
+  $line = Select-String -Path $EnvPath -Pattern "^$Key=(.+)$" | Select-Object -First 1
+  if ($line) { return $line.Matches[0].Groups[1].Value.Trim() }
+  return $null
+}
+
+$envPath = Join-Path $AppDir '.env'
+if (-not $ServiceName) {
+  $branchId = Get-EnvValue -EnvPath $envPath -Key 'BRANCH_ID'
+  if ($branchId) {
+    $ServiceName = "PrintAgent-$branchId"
+  } else {
+    Write-Host "CẢNH BÁO: Không tìm thấy BRANCH_ID trong $envPath — dùng -ServiceName để chỉ định tên service." -ForegroundColor Red
+  }
+}
 
 Write-Host "=== Print Agent Health Check ===" -ForegroundColor Cyan
 Write-Host "Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
@@ -13,14 +33,18 @@ Write-Host ""
 
 # 1. Service status
 Write-Host "1. Windows Service Status:" -ForegroundColor Yellow
-$svc = Get-Service $ServiceName -ErrorAction SilentlyContinue
-if ($svc) {
-  $svc | Format-List Name, Status, StartType
-  if ($svc.Status -ne 'Running') {
-    Write-Host "  *** SERVICE NOT RUNNING! Try: nssm start $ServiceName ***" -ForegroundColor Red
+if ($ServiceName) {
+  $svc = Get-Service $ServiceName -ErrorAction SilentlyContinue
+  if ($svc) {
+    $svc | Format-List Name, Status, StartType
+    if ($svc.Status -ne 'Running') {
+      Write-Host "  *** SERVICE NOT RUNNING! Try: nssm start $ServiceName ***" -ForegroundColor Red
+    }
+  } else {
+    Write-Host "  Service not installed!" -ForegroundColor Red
   }
 } else {
-  Write-Host "  Service not installed!" -ForegroundColor Red
+  Write-Host "  Bỏ qua: không rõ tên service (không có BRANCH_ID và không truyền -ServiceName)." -ForegroundColor Red
 }
 Write-Host ""
 
@@ -56,11 +80,16 @@ Write-Host ""
 
 # 4. Server reachable
 Write-Host "4. Server reachability:" -ForegroundColor Yellow
-try {
-  $h = Invoke-RestMethod "http://160.250.133.192:3000/health" -TimeoutSec 5
-  Write-Host "  HTTP /health: status=$($h.status), mqtt=$($h.mqtt), db=$($h.db), uptime=$($h.uptime_seconds)s" -ForegroundColor Green
-} catch {
-  Write-Host "  *** Server unreachable: $($_.Exception.Message) ***" -ForegroundColor Red
+$apiUrl = Get-EnvValue -EnvPath $envPath -Key 'API_URL'
+if ($apiUrl) {
+  try {
+    $h = Invoke-RestMethod "$apiUrl/health" -TimeoutSec 5
+    Write-Host "  HTTP /health: status=$($h.status), mqtt=$($h.mqtt), db=$($h.db), uptime=$($h.uptime_seconds)s" -ForegroundColor Green
+  } catch {
+    Write-Host "  *** Server unreachable ($apiUrl): $($_.Exception.Message) ***" -ForegroundColor Red
+  }
+} else {
+  Write-Host "  *** Không tìm thấy API_URL trong $envPath — bỏ qua kiểm tra server (không đoán URL để tránh ping nhầm server khác). ***" -ForegroundColor Red
 }
 Write-Host ""
 

@@ -32,7 +32,7 @@ This Code of Conduct applies within all project spaces — GitHub repository, is
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by contacting the project team at **admin@printservice.local**. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by contacting the project maintainers via a GitHub issue or, for sensitive reports, the repository's **Security** tab (private reporting). All complaints will be reviewed and investigated promptly and fairly.
 
 ## Attribution
 

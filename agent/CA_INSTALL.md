@@ -4,10 +4,12 @@ Khi server dùng **cert nội bộ** (self-signed HOẶC Step-CA) thay cho Let's
 máy agent Windows cần "tin tưởng" CA này — nếu không, kết nối TLS sẽ fail với
 `UNABLE_TO_VERIFY_LEAF_SIGNATURE` hoặc `CERT_AUTHORITY_INVALID`.
 
-> **Deployment hiện tại:** broker MQTT (8883) dùng cert **self-signed**
+> **Deployment mặc định:** broker MQTT (8883) dùng cert **self-signed**
 > `CN=<server_ip>`; `root_ca.crt` chính là cert đó (trên server:
-> `cp /etc/mosquitto/certs/server.crt root_ca.crt`). Nếu API chạy HTTP:3000 thì
-> agent KHÔNG cần CA cho API — chỉ cần cho MQTTS. CA chỉ bắt buộc cho HTTPS.
+> `cp /etc/mosquitto/certs/server.crt root_ca.crt`). Nếu API chạy HTTP:3000 (mặc định,
+> `HTTPS_ENABLED=false`) thì agent KHÔNG cần CA cho API — chỉ cần cho MQTTS. CA chỉ bắt buộc
+> cho HTTPS. Nếu deployment của bạn dùng **Step-CA** (PKI nội bộ, xem `server/scripts/setup-step-ca.sh`)
+> thay vì self-signed, các bước cài root CA dưới đây vẫn giống hệt — chỉ khác nguồn gốc cert.
 >
 > **Lưu ý Node:** import vào Windows Trusted Root KHÔNG giúp agent (Node bỏ qua
 > Windows cert store). Agent tin CA qua `MQTT_CA_FILE` (root_ca.crt) cho MQTT +
@@ -24,7 +26,7 @@ máy agent Windows cần "tin tưởng" CA này — nếu không, kết nối TL
 
 | File | Mô tả |
 |---|---|
-| `root_ca.crt` | Certificate của Step-CA root (~2-5KB, định dạng PEM/X.509). |
+| `root_ca.crt` | Certificate CA nội bộ — self-signed (mặc định) hoặc Step-CA root tuỳ deployment (~2-5KB, định dạng PEM/X.509). |
 | `CA password` (optional) | Nếu CA được re-issue, HQ sẽ thông báo. |
 
 ## Các bước cài (Windows 10/11)
@@ -41,7 +43,7 @@ máy agent Windows cần "tin tưởng" CA này — nếu không, kết nối TL
    Authorities** → chọn **Local Computer** → OK → Next.
 7. **Finish**. Nếu có UAC prompt → Yes.
 8. Verify: tab "Certification Path" phải hiện
-   CN của server (self-signed: `CN=<server_ip>`, vd `160.250.133.192`) với dấu tick xanh.
+   CN của server (self-signed: `CN=<server_ip>`, vd `<SERVER_IP>`) với dấu tick xanh.
 
 ### Phương pháp 2: certlm.msc (cho IT admin, nhiều máy)
 
@@ -51,7 +53,7 @@ máy agent Windows cần "tin tưởng" CA này — nếu không, kết nối TL
 3. Right-click **Certificates** → **All Tasks** → **Import...**
 4. Browse tới `root_ca.crt` → Next → Place in "Trusted Root
    Certification Authorities" → Finish.
-5. Verify: cert `CN=<server_ip>` (vd `160.250.133.192`) xuất hiện trong list.
+5. Verify: cert `CN=<server_ip>` (vd `<SERVER_IP>`) xuất hiện trong list.
 
 ### Phương pháp 3: PowerShell (script, nhiều máy)
 
@@ -66,27 +68,28 @@ Verify:
 
 ```powershell
 Get-ChildItem Cert:\LocalMachine\Root |
-  Where-Object { $_.Subject -match "160.250.133.192" } |   # đổi theo CN cert của bạn
+  Where-Object { $_.Subject -match "<SERVER_IP>" } |   # đổi theo CN cert của bạn
   Select-Object Subject, NotAfter, Thumbprint
 ```
 
 ## Verify kết nối
 
-Sau khi cài root CA, test từ PowerShell:
+Sau khi cài root CA, test từ PowerShell. **Bắt buộc** (mọi deployment): MQTT TLS. **Tuỳ chọn**
+(chỉ khi server bật `HTTPS_ENABLED=true`): HTTPS API — mặc định API chạy HTTP:3000, không cần CA.
 
 ```powershell
-# Test HTTPS API (should be 200 OK with no cert warning)
-curl.exe --cacert C:\print-system\root_ca.crt `
-  https://160.250.133.192:443/api/health
-
 # Test MQTT TLS (should connect without UNABLE_TO_VERIFY_LEAF_SIGNATURE)
-mosquitto_pub -h 160.250.133.192 -p 8883 `
+mosquitto_pub -h <SERVER_IP> -p 8883 `
   -t test/connectivity -m "ping" `
   --cafile C:\print-system\root_ca.crt `
   -u printservice -P '<mqtt_pass>'
+
+# Chỉ chạy nếu API_URL dùng https:// (HTTPS_ENABLED=true trên server):
+curl.exe --cacert C:\print-system\root_ca.crt `
+  https://<SERVER_IP>:443/api/health
 ```
 
-Cả hai command phải chạy thành công, không có cảnh báo certificate.
+Command(s) phải chạy thành công, không có cảnh báo certificate.
 
 ## Troubleshooting
 
@@ -94,7 +97,7 @@ Cả hai command phải chạy thành công, không có cảnh báo certificate.
 |---|---|---|
 | `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | Root CA chưa được cài, hoặc cài sai store. | Mở `certlm.msc` → Trusted Root → kiểm tra có cert `CN=<server_ip>` không. |
 | `CERT_AUTHORITY_INVALID` | CA cert hết hạn hoặc bị revoke. | Liên hệ HQ IT để lấy root CA mới. |
-| `ERR_CERT_COMMON_NAME_INVALID` | Server cert không match hostname. | Kiểm tra server cert phải có SAN = `160.250.133.192`. Nếu agent dùng DNS khác, cần provision cert mới với SAN tương ứng. |
+| `ERR_CERT_COMMON_NAME_INVALID` | Server cert không match hostname. | Kiểm tra server cert phải có SAN = `<SERVER_IP>`. Nếu agent dùng DNS khác, cần provision cert mới với SAN tương ứng. |
 | Cài vào "Personal" thay vì "Trusted Root" | Nhầm store. | Remove cert khỏi Personal, cài lại vào Trusted Root. |
 
 ## Lưu ý bảo mật
@@ -103,5 +106,5 @@ Cả hai command phải chạy thành công, không có cảnh báo certificate.
   riêng qua kênh an toàn.
 - Root CA chỉ cần cài trên **máy agent**, không cần trên server (server đã
   trust CA tự nhiên vì nó issue cert).
-- Nếu máy agent bị compromise, **remove root CA** trên máy đó + rotate
-  cert trên server (chạy `renew-step-certs.sh` với `--force`).
+- Nếu máy agent bị compromise, **remove root CA** trên máy đó + rotate cert trên server
+  (self-signed: tạo lại cert Mosquitto rồi restart; Step-CA: chạy `renew-step-certs.sh` với `--force`).

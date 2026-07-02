@@ -25,8 +25,8 @@ Build 1 agent chạy được trên Windows, có thể:
 
 ### 2. SERVER (đã chạy sẵn, KHÔNG cần build)
 
-**Endpoint:** `http://160.250.133.192:3000`
-**MQTT broker:** `mqtts://160.250.133.192:8883`
+**Endpoint:** `http://<SERVER_IP>:3000`
+**MQTT broker:** `mqtts://<SERVER_IP>:8883`
 **CA cert:** tôi sẽ cung cấp nội dung cert ở §3
 
 **MQTT topic:**
@@ -45,7 +45,7 @@ Build 1 agent chạy được trên Windows, có thể:
 
 ### 3. CA CERT (self-signed)
 
-Tạo file `C:\print-system\ca.crt` với nội dung sau (cert này đã có SAN cho IP `160.250.133.192`, `localhost`, `127.0.0.1`, `izigovn`):
+Tạo file `C:\print-system\ca.crt` với nội dung sau (cert này đã có SAN cho IP `<SERVER_IP>`, `localhost`, `127.0.0.1`, `izigovn`):
 
 ```
 <TLS_CERT_CONTENT>
@@ -69,11 +69,11 @@ notepad C:\print-system\ca.crt
 ```
 BRANCH_ID=br_001
 AGENT_TOKEN=<AGENT_TOKEN>
-MQTT_URL=mqtts://160.250.133.192:8883
+MQTT_URL=mqtts://<SERVER_IP>:8883
 MQTT_USER=br_001
 MQTT_PASS=<BRANCH_MQTT_PASS_br_001>
 MQTT_CA_FILE=C:\print-system\ca.crt
-API_URL=http://160.250.133.192:3000
+API_URL=http://<SERVER_IP>:3000
 SUMATRA_PATH=C:\print-system\tools\SumatraPDF.exe
 TMP_DIR=C:\print-system\agents\agent-01\tmp
 LOG_DIR=C:\print-system\agents\agent-01\logs
@@ -434,7 +434,7 @@ connectMqtt();
 7. **Verify setup** bằng cách chạy `node agent.js` — phải thấy log:
    ```
    Agent starting {branch:"br_001", pid:...}
-   MQTT connected {url:"mqtts://160.250.133.192:8883"}
+   MQTT connected {url:"mqtts://<SERVER_IP>:8883"}
    Subscribed {topic:"company/printer/br_001/jobs"}
    Fetched pending jobs (after reconnect) {count:0}
    ```

@@ -68,6 +68,6 @@ async function processJob(job) {
 }
 ```
 
-**KHÔNG dùng `file_path` từ list response** — đó là path trên VPS (`/opt/print-service/storage/...`), agent Windows không truy cập được. LUÔN download qua API.
+**KHÔNG dùng `file_path` từ list response** — đó là path trên VPS (vd `<INSTALL_DIR>/storage/...`), agent Windows không truy cập được. LUÔN download qua API.
 
 Server đã test 8/8 case pass (download OK, 410 cho job printed, 401 cho token sai, 404 cho job not found, v.v.). A cứ code theo hướng dẫn, chạy thử báo lại kết quả.

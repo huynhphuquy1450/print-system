@@ -18,7 +18,7 @@ Tôi cần bạn:
 
 1. **Tạo folder mới** `C:\print-agent-clean\` chứa **code sạch** (KHÔNG có secret, KHÔNG có `.env`, KHÔNG có `ca.crt` thật)
 2. **Replace secret bằng placeholder** trong tất cả file (nếu có)
-3. **Upload folder đó lên VPS** `160.250.133.192` qua `scp`
+3. **Upload folder đó lên VPS** `<SERVER_IP>` qua `scp`
 4. **Báo lại** cho tôi kết quả
 
 ---
@@ -151,17 +151,17 @@ Sau khi tạo xong folder `C:\print-agent-clean\`, upload lên VPS:
 
 ```powershell
 # Test SSH trước
-ssh admin@160.250.133.192 "echo connected"
+ssh <user>@<SERVER_IP> "echo connected"
 
 # Upload folder (sẽ hỏi password)
-scp -r C:\print-agent-clean\* admin@160.250.133.192:/tmp/agent-upload/
+scp -r C:\print-agent-clean\* <user>@<SERVER_IP>:/tmp/agent-upload/
 
 # Verify
-ssh admin@160.250.133.192 "ls -la /tmp/agent-upload/"
+ssh <user>@<SERVER_IP> "ls -la /tmp/agent-upload/"
 ```
 
 **Lưu ý**:
-- User `admin` trên VPS có password (a nhập khi được hỏi)
+- User `<user>` trên VPS có password (nhập khi được hỏi)
 - Destination: `/tmp/agent-upload/` — KHÔNG vào `/opt/print-system/` (chỗ đó là code server)
 - Tôi sẽ move từ `/tmp/agent-upload/` sang monorepo sau
 
@@ -189,11 +189,11 @@ Sau khi xong, báo tôi:
 
 | Lỗi | Cách xử lý |
 |---|---|
-| `scp: Permission denied` | Password sai hoặc user không có quyền SSH. Kiểm tra `ssh admin@160.250.133.192 "whoami"` |
+| `scp: Permission denied` | Password sai hoặc user không có quyền SSH. Kiểm tra `ssh <user>@<SERVER_IP> "whoami"` |
 | `Connection refused` | VPS offline hoặc firewall chặn port 22 |
 | Folder C:\print-system không tồn tại | Kiểm tra agent đang chạy ở đâu: `Get-Service PrintAgent-br001` xem AppDirectory |
 | Không tìm thấy file agent.js | File có thể ở `C:\print-system\agent-01\agent.js` thay vì `C:\print-system\agent.js` |
-| Muốn upload ZIP thay vì scp folder | OK: `Compress-Archive C:\print-agent-clean C:\print-agent-clean.zip -Force` rồi `scp C:\print-agent-clean.zip admin@160.250.133.192:/tmp/` |
+| Muốn upload ZIP thay vì scp folder | OK: `Compress-Archive C:\print-agent-clean C:\print-agent-clean.zip -Force` rồi `scp C:\print-agent-clean.zip <user>@<SERVER_IP>:/tmp/` |
 
 ---
 

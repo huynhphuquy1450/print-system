@@ -32,7 +32,7 @@ PROVISIONER="admin"
 PROVISIONER_PASSWORD_FILE="${STEPPATH:-/root/.step}/provisioner_password"
 
 MOSQ_CERT_DIR="/etc/mosquitto/certs"
-EXPRESS_CERT_DIR="/opt/print-service/certs"
+EXPRESS_CERT_DIR="<INSTALL_DIR>/certs"
 
 # Helper: step CLI flags for non-interactive renew
 step_renew_flags=()
