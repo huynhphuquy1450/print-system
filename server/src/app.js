@@ -32,6 +32,10 @@ app.use(
         objectSrc: ["'none'"],
         baseUri: ["'self'"],
         frameAncestors: ["'self'"],
+        // helmet useDefaults chèn upgrade-insecure-requests → browser ép asset sang
+        // https:// trong khi :3000 chỉ nói HTTP → ERR_SSL_PROTOCOL_ERROR, trang trắng.
+        // null = gỡ directive. Bật lại khi nào web đi qua HTTPS thật.
+        upgradeInsecureRequests: null,
       },
     },
   })
